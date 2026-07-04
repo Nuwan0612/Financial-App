@@ -78,7 +78,8 @@ const InvestmentsPage = () => {
               <Card 
                 key={account.id} 
                 className="group relative overflow-hidden border-border/50 hover:border-transparent hover:shadow-lg hover:shadow-primary/5 transition-all duration-300 hover:-translate-y-1 cursor-pointer"
-                onClick={() => router.push(`/investments/${account.id}`)}
+                // onClick={() => router.push(`/investments/${account.id}`)}
+                onClick={() => router.push(`/investments/${account.id}?name=${encodeURIComponent(account.name)}`)}
               >
                 {/* Glowing top line effect */}
                 <div className={`absolute top-0 inset-x-0 h-1 bg-linear-to-r ${gradient} opacity-70 group-hover:opacity-100 transition-opacity`} />
