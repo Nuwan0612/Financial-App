@@ -14,7 +14,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/sectors")
+@RequestMapping("/api/v1/sectors")
 @RequiredArgsConstructor
 public class SectorController {
 
