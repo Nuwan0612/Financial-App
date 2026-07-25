@@ -11,6 +11,9 @@ public record InvestmentCompanyRequestDTO(
     @NotBlank(message = "Company name is required")
     String name,
 
+    @NotNull(message = "Company should be mark as S&P20 or not")
+    Boolean isSp20,
+
     BigDecimal currentPrice,
 
     @NotNull(message = "Sector ID is required")

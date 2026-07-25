@@ -19,6 +19,7 @@ export const accountsApi = {
   getAll: () => api.get<Account[]>("/accounts"),
   create: (data: AccountDto) => api.post<Account>("/accounts", data),
   update: (id: number, data: Partial<AccountDto>) => api.put<Account>(`/accounts/${id}`, data),
+  getAccountById: (id: number) => api.get<Account>(`/accounts/${id}`),
 }
 
 

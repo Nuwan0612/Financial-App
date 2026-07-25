@@ -28,6 +28,9 @@ public class InvestmentCompany {
   @Column(name = "current_price", precision = 19, scale = 4)
   private BigDecimal currentPrice;
 
+  @Column(name = "is_sp_20", nullable = false)
+  private Boolean isSp20;
+
   // Link to Sector (Many companies belong to one sector)
   @ManyToOne(fetch = FetchType.LAZY)
   @JoinColumn(name = "sector_id")

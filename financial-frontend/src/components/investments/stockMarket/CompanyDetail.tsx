@@ -1,40 +1,111 @@
-// src/components/investments/CompanyDetail.tsx
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, Plus, TrendingUp, TrendingDown, Pencil } from "lucide-react"
+import { useState, useEffect } from "react"
+import { ArrowLeft, Plus, TrendingUp, TrendingDown, Pencil, Loader2, Trash2, Edit } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-import { Holding } from "./types"
-import { metrics, trades } from "./data"
+import { investmentCompaniesApi, InvestmentCompany } from "@/lib/api/stockMarket"
+import { tradesApi, metricsApi, TradeTransaction, CompanyMetric } from "@/lib/api/stockMarket" // Import your new API calls here
 import { fmt, fmtNum } from "./utils"
+import { AddTradeDialog } from "./AddDialogs"
+import { useParams } from "next/navigation"
+import { accountsApi, bucketsApi, Bukets } from "@/lib/api/accounts"
+import { Account } from "@/lib/api/accounts"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 export default function CompanyDetail({
-  holding,
+  investmentCompany,
   onBack,
 }: {
-  holding: Holding
+  investmentCompany: InvestmentCompany
   onBack: () => void
 }) {
-  const metric = metrics.find(m => m.companyId === holding.id)
-  const companyTrades = trades.filter(t => t.companyId === holding.id)
-  const totalInvested = holding.shares * holding.avgCost
-  const currentValue = holding.shares * holding.currentPrice
-  const pnl = currentValue - totalInvested
-  const pnlPct = ((pnl / totalInvested) * 100).toFixed(2)
-  const isProfit = pnl >= 0
 
+  const params = useParams()
+  const accountId = Number(params.id)
+
+  const [account, setAccount] = useState<Account | null>(null) 
+  const [buckets, setBuckets] = useState<Bukets[]>([])
+
+  // --- Data Fetching State ---
+  const [metric, setMetric] = useState<CompanyMetric | null>(null)
+  const [companyTrades, setCompanyTrades] = useState<TradeTransaction[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddTrade, setShowAddTrade] = useState(false)
+
+  const [showPriceDialog, setShowPriceDialog] = useState(false)
+  const [newPrice, setNewPrice] = useState<string>(String(investmentCompany.currentPrice))
+  const [updatingPrice, setUpdatingPrice] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    // Fetch both metrics and trades in parallel
+    Promise.all([
+      metricsApi.getByCompany(investmentCompany.id).catch(() => null), 
+      tradesApi.getByCompany(investmentCompany.id).catch(() => ({ data: [] })),
+      accountsApi.getAccountById(accountId).catch(() => null), 
+      bucketsApi.getBucketsByAccount(accountId).catch(() => ({ data: [] })) 
+    ]).then(([metricRes, tradesRes, accountRes, bucketsRes]) => {
+      if (metricRes && metricRes.data) setMetric(metricRes.data)
+      if (tradesRes && tradesRes.data) setCompanyTrades(tradesRes.data)
+      if (accountRes && accountRes.data) setAccount(accountRes.data)
+      if (bucketsRes && bucketsRes.data) setBuckets(bucketsRes.data)
+    }).finally(() => {
+      setLoading(false)
+    })
+  }, [investmentCompany.id, accountId])
+
+  const handleDeleteTrade = async (tradeId: number) => {
+    if (!confirm("Are you sure you want to delete this transaction?")) return;
+    try {
+      await tradesApi.delete(tradeId);
+      setCompanyTrades(prev => prev.filter(t => t.id !== tradeId));
+    } catch (error) {
+      console.error("Failed to delete trade");
+    }
+  }
+
+  const handleUpdatePrice = async () => {
+    if (!newPrice || Number(newPrice) <= 0) return;
+
+    try {
+      setUpdatingPrice(true)
+      // Call your backend PATCH endpoint
+      await investmentCompaniesApi.updatePrice(investmentCompany.id, Number(newPrice), accountId)
+      
+      // Refresh the page to pull the newly calculated P&L and metrics from the backend
+      window.location.reload()
+    } catch (error) {
+      console.error("Failed to update price", error)
+    } finally {
+      setUpdatingPrice(false)
+    }
+  }
+
+  // --- Dynamic Financial Calculations from the backend fields ---
+  const totalInvested = investmentCompany.totalInvestedAmount
+  const currentValue = investmentCompany.currentTotalValue
+  const pnl = investmentCompany.totalProfit
+  const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100).toFixed(2) : "0.00"
+  const isProfit = pnl >= 0
+  
+  const avgCost = investmentCompany.totalActiveShares > 0 
+      ? totalInvested / investmentCompany.totalActiveShares 
+      : 0
+
+  // Live calculator state
   const [calcForm, setCalcForm] = useState({
-    stockPrice: String(holding.currentPrice),
-    netIncome: metric ? String(metric.netIncome) : "",
-    sharesOutstanding: metric ? String(metric.sharesOutstanding) : "",
-    totalDividends: metric ? String(metric.totalDividendsPaid) : "",
+    stockPrice: String(investmentCompany.currentPrice),
+    netIncome: "",
+    sharesOutstanding: "",
+    totalDividends: "",
   })
 
+  // Live calculator logic
   const eps = calcForm.netIncome && calcForm.sharesOutstanding
     ? Number(calcForm.netIncome) / Number(calcForm.sharesOutstanding)
     : null
@@ -42,6 +113,14 @@ export default function CompanyDetail({
   const divYield = calcForm.totalDividends && calcForm.sharesOutstanding && calcForm.stockPrice
     ? ((Number(calcForm.totalDividends) / Number(calcForm.sharesOutstanding)) / Number(calcForm.stockPrice)) * 100
     : null
+
+  if (loading) {
+    return (
+      <div className="flex h-64 items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1400px" }}>
@@ -53,27 +132,38 @@ export default function CompanyDetail({
           </Button>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold">{holding.symbol}</h1>
-              <Badge variant="secondary">{holding.sector}</Badge>
+              <h1 className="text-2xl font-semibold">{investmentCompany.symbol}</h1>
+              <Badge variant="secondary">{investmentCompany.sectorName}</Badge>
+              {investmentCompany.isSp20 && <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-xs">S&P 20</Badge>}
             </div>
-            <p className="text-sm text-muted-foreground">{holding.name}</p>
+            <p className="text-sm text-muted-foreground">{investmentCompany.name}</p>
           </div>
         </div>
         <div className="flex items-center gap-6 text-right">
           <div>
             <p className="text-xs text-muted-foreground">Current Price</p>
             <div className="flex items-center gap-1">
-              <p className="text-lg font-semibold">LKR {fmtNum(holding.currentPrice)}</p>
-              <Button variant="ghost" size="icon" className="h-6 w-6"><Pencil className="h-3 w-3" /></Button>
+              <p className="text-lg font-semibold">LKR {fmtNum(investmentCompany.currentPrice)}</p>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-6 w-6" 
+                onClick={() => {
+                  setNewPrice(String(investmentCompany.currentPrice)) // Reset to current price on open
+                  setShowPriceDialog(true)
+                }}
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
             </div>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Shares Owned</p>
-            <p className="text-lg font-semibold">{holding.shares.toLocaleString()}</p>
+            <p className="text-lg font-semibold">{investmentCompany.totalActiveShares.toLocaleString()}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Avg Cost</p>
-            <p className="text-lg font-semibold">LKR {fmtNum(holding.avgCost)}</p>
+            <p className="text-lg font-semibold">LKR {fmtNum(avgCost)}</p>
           </div>
           <div>
             <p className="text-xs text-muted-foreground">P&L</p>
@@ -93,7 +183,7 @@ export default function CompanyDetail({
 
         <TabsContent value="metrics" className="mt-6 space-y-6">
           <div className="grid grid-cols-2 gap-6">
-            {/* Saved metrics */}
+            {/* Saved metrics from Backend */}
             {metric ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -104,12 +194,10 @@ export default function CompanyDetail({
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   {[
-                    { label: "EPS", value: `LKR ${fmtNum(metric.eps)}` },
-                    { label: "P/E Ratio", value: fmtNum(metric.peRatio) },
-                    { label: "Dividend Yield", value: `${fmtNum(metric.dividendYield)}%` },
-                    { label: "S&P 20", value: metric.isSP20 ? "Yes" : "No" },
-                    { label: "Pays Dividends", value: metric.paysDividends ? "Yes" : "No" },
-                    { label: "Net Income", value: fmt(metric.netIncome) },
+                    { label: "EPS", value: metric.eps ? `LKR ${fmtNum(metric.eps)}` : "—" },
+                    { label: "P/E Ratio", value: metric.peRatio ? fmtNum(metric.peRatio) : "—" },
+                    { label: "Pays Dividends", value: metric.isDividendPaying ? "Yes" : "No" },
+                    { label: "S&P 20 Member", value: investmentCompany.isSp20 ? "Yes" : "No" },
                   ].map(item => (
                     <div key={item.label} className="rounded-lg border border-border p-3 bg-card">
                       <p className="text-xs text-muted-foreground">{item.label}</p>
@@ -119,15 +207,15 @@ export default function CompanyDetail({
                 </div>
               </div>
             ) : (
-              <div className="rounded-lg border border-border p-8 text-center">
-                <p className="text-sm text-muted-foreground">No metrics saved yet.</p>
+              <div className="rounded-lg border border-border p-8 text-center flex flex-col justify-center items-center h-[200px]">
+                <p className="text-sm text-muted-foreground">No metrics saved yet for this company.</p>
                 <Button size="sm" className="mt-3 gap-1.5">
                   <Plus className="h-3 w-3" /> Add Metrics
                 </Button>
               </div>
             )}
 
-            {/* Live calculator */}
+            {/* Live calculator (UI Only) */}
             <div className="space-y-4">
               <h2 className="text-base font-medium">Live Calculator</h2>
               <div className="rounded-lg border border-border p-4 space-y-3">
@@ -164,7 +252,15 @@ export default function CompanyDetail({
           </div>
         </TabsContent>
 
-        <TabsContent value="trades" className="mt-6">
+        <TabsContent value="trades" className="mt-6 space-y-4">
+
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-medium">Transaction History</h2>
+            <Button size="sm" onClick={() => setShowAddTrade(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" /> Add Transaction
+            </Button>
+          </div>
+
           <div className="rounded-lg border border-border overflow-hidden">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -174,18 +270,22 @@ export default function CompanyDetail({
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Quantity</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Price</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Total</th>
+                  <th className="text-center px-4 py-3 font-medium text-muted-foreground border border-border w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {companyTrades.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-muted-foreground text-sm">
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
                       No trades recorded for this company.
                     </td>
                   </tr>
-                ) : companyTrades.map(trade => (
+                ) : companyTrades.map(trade => {
+                  const tradeDate = new Date(trade.transactionDate).toLocaleDateString()
+                  
+                  return (
                   <tr key={trade.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 border border-border text-muted-foreground text-xs">{trade.date}</td>
+                    <td className="px-4 py-3 border border-border text-muted-foreground text-xs">{tradeDate}</td>
                     <td className="px-4 py-3 border border-border text-center">
                       <Badge className={trade.type === "BUY"
                         ? "bg-green-500/10 text-green-600 border-green-500/20"
@@ -194,17 +294,78 @@ export default function CompanyDetail({
                       </Badge>
                     </td>
                     <td className="px-4 py-3 border border-border text-right tabular-nums">{trade.quantity.toLocaleString()}</td>
-                    <td className="px-4 py-3 border border-border text-right tabular-nums">LKR {fmtNum(trade.price)}</td>
+                    <td className="px-4 py-3 border border-border text-right tabular-nums">LKR {fmtNum(trade.executionPrice)}</td>
                     <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
-                      {fmt(trade.quantity * trade.price)}
+                      {fmt(trade.investmentAmount)}
+                    </td>
+                    <td className="px-4 py-3 border border-border text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDeleteTrade(trade.id)}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
         </TabsContent>
       </Tabs>
+
+      <AddTradeDialog
+        open={showAddTrade}
+        onClose={() => setShowAddTrade(false)}
+        companyId={investmentCompany.id}
+        
+        // Pass the extracted and fetched data here
+        accountId={accountId}
+        accountName={account?.name || "Loading..."}
+        bucketId={buckets.length > 0 ? buckets[0].id : 0} 
+        bucketName={buckets.length > 0 ? buckets[0].name : "Loading..."}
+        
+        onSuccess={(newTrade) => setCompanyTrades(prev => [newTrade, ...prev])}
+      />
+
+      {/* Update Price Dialog */}
+      <Dialog open={showPriceDialog} onOpenChange={setShowPriceDialog}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Update Current Price</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="new-price">New Market Price (LKR)</Label>
+              <Input
+                id="new-price"
+                type="number"
+                step="0.01"
+                min="0"
+                value={newPrice}
+                onChange={(e) => setNewPrice(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPriceDialog(false)} disabled={updatingPrice}>
+              Cancel
+            </Button>
+            <Button onClick={handleUpdatePrice} disabled={updatingPrice}>
+              {updatingPrice && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              Save & Refresh
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

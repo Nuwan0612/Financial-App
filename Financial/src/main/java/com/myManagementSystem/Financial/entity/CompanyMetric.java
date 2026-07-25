@@ -17,9 +17,6 @@ public class CompanyMetric {
   @GeneratedValue(strategy = GenerationType.IDENTITY)
   private Long id;
 
-  @Column(name = "is_sp_20", nullable = false)
-  private Boolean isSp20;
-
   @Column(name = "is_dividend_paying", nullable = false)
   private Boolean isDividendPaying;
 

@@ -1,8 +1,8 @@
 // src/components/investments/StockMarketDetail.tsx
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, Plus, Zap } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ArrowLeft, Loader2, Plus, Zap } from "lucide-react"
 import { useRouter } from "next/navigation"
 
 import { Button } from "@/components/ui/button"
@@ -19,31 +19,64 @@ import { fmt, fmtNum, SECTOR_COLORS } from "./utils"
 import { holdings, portfolioHistory, sectorData } from "./data"
 import CompanyDetail from "./CompanyDetail"
 import MetricGuide from "./MetricGuide"
+import { AddCompanyDialog, SectorDialog } from "./AddDialogs"
+
+import { investmentCompaniesApi, InvestmentCompany } from "@/lib/api/stockMarket"
+
 
 export default function StockMarketDetail({
-  id, name,
+id, name,
 }: {
   id: number
   name: string
 }) {
   const router = useRouter()
-  const [selectedHolding, setSelectedHolding] = useState<Holding | null>(null)
+  const [selectedHolding, setSelectedHolding] = useState<InvestmentCompany | null>(null)
   const [calcForm, setCalcForm] = useState({
     stockPrice: "", netIncome: "", sharesOutstanding: "", totalDividends: "",
   })
   const [sectorFilter, setSectorFilter] = useState<string>("ALL")
   const [symbolSearch, setSymbolSearch] = useState<string>("")
+  const [showSectorDialog, setShowSectorDialog] = useState(false)
 
-  if (selectedHolding) {
-    return <CompanyDetail holding={selectedHolding} onBack={() => setSelectedHolding(null)} />
+  const [companies, setCompanies] = useState<InvestmentCompany[]>([])
+  const [companiesLoading, setCompaniesLoading] = useState(true)
+  const [showAddCompany, setShowAddCompany] = useState(false)
+
+  useEffect(() => {
+  investmentCompaniesApi.getAll()
+    .then(res => setCompanies(res.data))
+    .catch(() => console.error("Failed to fetch companies"))
+    .finally(() => setCompaniesLoading(false))
+  }, [])
+
+   if (selectedHolding) {
+    return <CompanyDetail investmentCompany={selectedHolding} onBack={() => setSelectedHolding(null)} />
   }
 
-  const totalValue = holdings.reduce((s, h) => s + h.shares * h.currentPrice, 0)
-  const totalInvested = holdings.reduce((s, h) => s + h.shares * h.avgCost, 0)
-  const totalPnL = totalValue - totalInvested
+  const totalValue = companies.reduce((s, c) => s + c.currentTotalValue, 0)
+  const totalInvested = companies.reduce((s, c) => s + c.totalInvestedAmount, 0)
+  const totalPnL = companies.reduce((s, c) => s + c.totalProfit, 0)
+
+  const sectors = ["ALL", ...Array.from(new Set(companies.map(c => c.sectorName)))]
+
+  const filteredCompanies = companies.filter(c => {
+    const matchesSector = sectorFilter === "ALL" || c.sectorName === sectorFilter
+    const matchesSymbol = c.symbol.toLowerCase().includes(symbolSearch.toLowerCase()) ||
+      c.name.toLowerCase().includes(symbolSearch.toLowerCase())
+    return matchesSector && matchesSymbol
+  })
+
+  const sectorPnL = Array.from(new Set(companies.map(c => c.sectorName))).map(sector => {
+    const pnl = companies
+      .filter(c => c.sectorName === sector)
+      .reduce((s, c) => s + c.totalProfit, 0)
+    return { name: sector, pnl: Math.round(pnl) }
+  })
+
+ 
   const buyingPower = 50000 
 
-  const sectors = ["ALL", ...Array.from(new Set(holdings.map(h => h.sector)))]
 
   const filteredHoldings = holdings.filter(h => {
     const matchesSector = sectorFilter === "ALL" || h.sector === sectorFilter
@@ -52,11 +85,6 @@ export default function StockMarketDetail({
     return matchesSector && matchesSymbol
   })
 
-  const sectorPnL = Array.from(new Set(holdings.map(h => h.sector))).map(sector => {
-    const sectorHoldings = holdings.filter(h => h.sector === sector)
-    const pnl = sectorHoldings.reduce((s, h) => s + (h.currentPrice - h.avgCost) * h.shares, 0)
-    return { name: sector, pnl: Math.round(pnl) }
-  })
 
   const eps = calcForm.netIncome && calcForm.sharesOutstanding
     ? Number(calcForm.netIncome) / Number(calcForm.sharesOutstanding) : null
@@ -77,11 +105,11 @@ export default function StockMarketDetail({
           </div>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" className="gap-2">
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowSectorDialog(true)}>
             <Plus className="h-4 w-4" /> New Sector
           </Button>
-          <Button size="sm" className="gap-2">
-            <Zap className="h-4 w-4" /> Execute Trade
+          <Button size="sm" className="gap-2" onClick={() => setShowAddCompany(true)}>
+            <Zap className="h-4 w-4" /> Add Company
           </Button>
         </div>
       </div>
@@ -206,43 +234,54 @@ export default function StockMarketDetail({
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredHoldings.length === 0 ? (
+                    {companiesLoading ? (
+                      <tr>
+                        <td colSpan={8} className="px-4 py-10 text-center">
+                          <Loader2 className="h-5 w-5 animate-spin mx-auto text-muted-foreground" />
+                        </td>
+                      </tr>
+                    ) : filteredCompanies.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground text-sm">
                           No holdings match your filter.
                         </td>
                       </tr>
-                    ) : filteredHoldings.map(h => {
-                      const pnl = (h.currentPrice - h.avgCost) * h.shares
-                      const isProfit = pnl >= 0
+                    ) : filteredCompanies.map(c => {
+                      const avgCost = c.totalActiveShares > 0
+                        ? c.totalInvestedAmount / c.totalActiveShares
+                        : 0
+                      const isProfit = c.totalProfit >= 0
+
                       return (
                         <tr
-                          key={h.id}
+                          key={c.id}
                           className="hover:bg-muted/20 transition-colors cursor-pointer"
-                          onClick={() => setSelectedHolding(h)}
+                          onClick={() => setSelectedHolding(c)}   // ← update selectedHolding type too
                         >
-                          <td className="px-4 py-3 border border-border font-semibold text-primary">{h.symbol}</td>
-                          <td className="px-4 py-3 border border-border">{h.name}</td>
+                          <td className="px-4 py-3 border border-border font-semibold text-primary">{c.symbol}</td>
+                          <td className="px-4 py-3 border border-border">{c.name}</td>
                           <td className="px-4 py-3 border border-border">
-                            <Badge variant="outline" className="text-xs">{h.sector}</Badge>
+                            <Badge variant="outline" className="text-xs">{c.sectorName}</Badge>
                           </td>
                           <td className="px-4 py-3 border border-border text-center">
-                            {h.isSP20 ? (
+                            {c.isSp20 ? (
                               <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-xs">Yes</Badge>
                             ) : (
                               <span className="text-xs text-muted-foreground">—</span>
                             )}
                           </td>
-                          <td className="px-4 py-3 border border-border text-right tabular-nums">{h.shares.toLocaleString()}</td>
+                          <td className="px-4 py-3 border border-border text-right tabular-nums">
+                            {c.totalActiveShares.toLocaleString()}
+                          </td>
                           <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
-                            {fmtNum(h.avgCost)}
+                            {fmtNum(avgCost)}
                           </td>
                           <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
-                            {fmtNum(h.currentPrice)}
+                            {fmtNum(c.currentPrice)}
                           </td>
                           <td className={`px-4 py-3 border border-border text-right tabular-nums font-medium
                             ${isProfit ? "text-green-600" : "text-destructive"}`}>
-                            {isProfit ? "+" : "-"}{fmt(Math.abs(pnl))}
+                            {isProfit ? "+" : "-"}{fmt(Math.abs(c.totalProfit))}
                           </td>
                         </tr>
                       )
@@ -306,6 +345,17 @@ export default function StockMarketDetail({
           </div>
         </TabsContent>
       </Tabs>
+
+      <SectorDialog
+        open={showSectorDialog}
+        onClose={() => setShowSectorDialog(false)}
+      />
+
+      <AddCompanyDialog
+        open={showAddCompany}
+        onClose={() => setShowAddCompany(false)}
+        onAdded={company => setCompanies(prev => [...prev, company])}
+      />
     </div>
   )
 }

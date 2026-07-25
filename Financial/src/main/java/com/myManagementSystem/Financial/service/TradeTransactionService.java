@@ -33,7 +33,7 @@ public class TradeTransactionService {
   private final AccountRepository accountRepository;
   private final BucketRepository bucketRepository;
 
-  @Transactional
+  @Transactional // Make sure you have this annotation so the DB saves safely!
   public TradeTransactionResponseDTO createTrade(TradeTransactionRequestDTO request) {
     log.info("Executing {} order for Company ID: {}", request.type(), request.companyId());
 
@@ -41,6 +41,8 @@ public class TradeTransactionService {
     InvestmentCompany company = companyRepository.findById(request.companyId())
         .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + request.companyId()));
 
+    // You actually don't even need to fetch the Account anymore if you aren't updating it!
+    // But if your TradeTransaction entity requires linking the account, leave this fetch here.
     Account account = accountRepository.findById(request.accountId())
         .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + request.accountId()));
 
@@ -56,20 +58,15 @@ public class TradeTransactionService {
       if (bucket.getCurrentAmount().compareTo(investmentAmount) < 0) {
         throw new IllegalStateException("Insufficient funds in Bucket to execute BUY order.");
       }
-      // Deduct cash for a BUY
-      account.setCurrentBalance(account.getCurrentBalance().subtract(investmentAmount));
+      // Deduct cash ONLY from Buying Power
       bucket.setCurrentAmount(bucket.getCurrentAmount().subtract(investmentAmount));
 
     } else if (request.type() == StockTransactionSide.SELL) {
-      // Add cash for a SELL
-      account.setCurrentBalance(account.getCurrentBalance().add(investmentAmount));
+      // Add cash BACK to Buying Power
       bucket.setCurrentAmount(bucket.getCurrentAmount().add(investmentAmount));
-
-      // Note: For SELL, cumulativeAmount might also need adjusting depending on your business logic.
     }
 
-    // Save updated cash balances
-    accountRepository.save(account);
+    // Save updated cash balance
     bucketRepository.save(bucket);
 
     // 4. Build and save the Trade Ledger Entry
@@ -84,7 +81,7 @@ public class TradeTransactionService {
 
     TradeTransaction savedTrade = tradeRepository.save(trade);
 
-    log.info("Successfully executed trade and updated Account/Bucket balances.");
+    log.info("Successfully executed trade and updated Bucket balance.");
     return mapToDTO(savedTrade);
   }
 

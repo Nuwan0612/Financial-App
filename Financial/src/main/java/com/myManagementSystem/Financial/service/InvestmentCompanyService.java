@@ -2,11 +2,13 @@ package com.myManagementSystem.Financial.service;
 
 import com.myManagementSystem.Financial.dto.InvestmentCompanyRequestDTO;
 import com.myManagementSystem.Financial.dto.InvestmentCompanyResponseDTO;
+import com.myManagementSystem.Financial.entity.Account;
 import com.myManagementSystem.Financial.entity.InvestmentCompany;
 import com.myManagementSystem.Financial.entity.Sector;
 import com.myManagementSystem.Financial.entity.TradeTransaction;
 import com.myManagementSystem.Financial.enums.StockTransactionSide;
 import com.myManagementSystem.Financial.exception.ResourceNotFoundException;
+import com.myManagementSystem.Financial.repository.AccountRepository;
 import com.myManagementSystem.Financial.repository.InvestmentCompanyRepository;
 import com.myManagementSystem.Financial.repository.SectorRepository;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ public class InvestmentCompanyService {
 
   private final InvestmentCompanyRepository companyRepository;
   private final SectorRepository sectorRepository;
+  private final AccountRepository accountRepository;
 
   @Transactional
   public InvestmentCompanyResponseDTO createCompany(InvestmentCompanyRequestDTO dto) {
@@ -41,6 +44,7 @@ public class InvestmentCompanyService {
         .symbol(dto.symbol())
         .name(dto.name())
         .currentPrice(dto.currentPrice() != null ? dto.currentPrice() : BigDecimal.ZERO)
+        .isSp20(dto.isSp20())
         .sector(sector)
         .build();
 
@@ -63,12 +67,65 @@ public class InvestmentCompanyService {
   }
 
   @Transactional
-  public InvestmentCompanyResponseDTO updateCompanyPrice(Long id, BigDecimal newPrice) {
-    log.info("Updating price for company ID: {} to {}", id, newPrice);
+  public InvestmentCompanyResponseDTO updateCompanyPrice(Long companyId, BigDecimal newPrice, Long accountId) {
+    log.info("Updating price for company ID: {} to {}", companyId, newPrice);
+
+    InvestmentCompany company = companyRepository.findById(companyId)
+        .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + companyId));
+
+    Account account = accountRepository.findById(accountId)
+        .orElseThrow(() -> new ResourceNotFoundException("Account not found with ID: " + accountId));
+
+    BigDecimal oldPrice = company.getCurrentPrice() != null ? company.getCurrentPrice() : BigDecimal.ZERO;
+    BigDecimal priceDifference = newPrice.subtract(oldPrice);
+
+    // 1. Calculate Active Shares
+    BigDecimal totalActiveShares = BigDecimal.ZERO;
+    if (company.getTransactions() != null) {
+      for (TradeTransaction trade : company.getTransactions()) {
+        if (trade.getType() == StockTransactionSide.BUY) {
+          totalActiveShares = totalActiveShares.add(trade.getQuantity());
+        } else if (trade.getType() == StockTransactionSide.SELL) {
+          totalActiveShares = totalActiveShares.subtract(trade.getQuantity());
+        }
+      }
+    }
+
+    // 2. Apply the Delta to the Account (Only if you own shares)
+    if (totalActiveShares.compareTo(BigDecimal.ZERO) > 0) {
+      BigDecimal valueChange = priceDifference.multiply(totalActiveShares);
+      account.setCurrentBalance(account.getCurrentBalance().add(valueChange));
+      accountRepository.save(account);
+      log.info("Adjusted Account {} balance by {} due to price change.", accountId, valueChange);
+    }
+
+    // 3. Save the new price
+    company.setCurrentPrice(newPrice);
+    return mapToDTO(companyRepository.save(company));
+  }
+
+  @Transactional
+  public InvestmentCompanyResponseDTO updateCompany(Long id, InvestmentCompanyRequestDTO dto) {
+    log.info("Updating entire Investment Company ID: {}", id);
+
     InvestmentCompany company = companyRepository.findById(id)
         .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + id));
 
-    company.setCurrentPrice(newPrice);
+    // Safety check: If the symbol is being changed, ensure the new symbol isn't already taken
+    if (!company.getSymbol().equalsIgnoreCase(dto.symbol()) && companyRepository.existsBySymbol(dto.symbol())) {
+      throw new IllegalArgumentException("Another company with symbol " + dto.symbol() + " already exists.");
+    }
+
+    Sector sector = sectorRepository.findById(dto.sectorId())
+        .orElseThrow(() -> new ResourceNotFoundException("Sector not found with ID: " + dto.sectorId()));
+
+    // Update all fields
+    company.setSymbol(dto.symbol());
+    company.setName(dto.name());
+    company.setCurrentPrice(dto.currentPrice() != null ? dto.currentPrice() : BigDecimal.ZERO);
+    company.setIsSp20(dto.isSp20());
+    company.setSector(sector);
+
     return mapToDTO(companyRepository.save(company));
   }
 
@@ -117,6 +174,7 @@ public class InvestmentCompanyService {
         company.getName(),
         currentPrice,
         sectorName,
+        company.getIsSp20(),
         totalActiveShares,
         totalInvestedAmount,
         currentTotalValue,

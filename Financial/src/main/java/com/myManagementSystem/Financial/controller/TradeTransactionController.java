@@ -14,7 +14,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/trades")
+@RequestMapping("/api/v1/trades")
 @RequiredArgsConstructor
 public class TradeTransactionController {
 

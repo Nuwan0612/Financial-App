@@ -16,7 +16,7 @@ import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/companies")
+@RequestMapping("/api/v1/companies")
 @RequiredArgsConstructor
 public class InvestmentCompanyController {
 
@@ -41,21 +41,35 @@ public class InvestmentCompanyController {
     return ResponseEntity.ok(companyService.getCompanyById(id));
   }
 
+  @PutMapping("/{id}")
+  public ResponseEntity<InvestmentCompanyResponseDTO> updateCompany(
+      @PathVariable Long id,
+      @Valid @RequestBody InvestmentCompanyRequestDTO requestDTO) {
+
+    log.info("REST request to fully update Investment Company : {}", id);
+
+    return ResponseEntity.ok(companyService.updateCompany(id, requestDTO));
+  }
+
   // Using PATCH because we are only partially updating the entity (just the price)
   @PatchMapping("/{id}/price")
   public ResponseEntity<InvestmentCompanyResponseDTO> updateCompanyPrice(
       @PathVariable Long id,
-      @RequestBody Map<String, BigDecimal> pricePayload) {
+      @RequestBody Map<String, BigDecimal> payload) {
 
     log.info("REST request to update price for Investment Company : {}", id);
 
-    // Extracting the price from a simple JSON payload like: {"newPrice": 150.50}
-    BigDecimal newPrice = pricePayload.get("newPrice");
+    BigDecimal newPrice = payload.get("newPrice");
+    BigDecimal accountIdDecimal = payload.get("accountId");
 
-    if (newPrice == null) {
-      throw new IllegalArgumentException("Payload must contain 'newPrice' field");
+    // 1. Add null check for both fields
+    if (newPrice == null || accountIdDecimal == null) {
+      throw new IllegalArgumentException("Payload must contain both 'newPrice' and 'accountId' fields");
     }
 
-    return ResponseEntity.ok(companyService.updateCompanyPrice(id, newPrice));
+    // 2. Convert the BigDecimal to a Long for the service method
+    Long accountId = accountIdDecimal.longValue();
+
+    return ResponseEntity.ok(companyService.updateCompanyPrice(id, newPrice, accountId));
   }
 }
