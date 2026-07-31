@@ -85,6 +85,69 @@ public class TradeTransactionService {
     return mapToDTO(savedTrade);
   }
 
+  @Transactional
+  public void deleteTradeById(Long tradeId, Long bucketId) {
+    log.info("Processing deletion for trade ID: {}", tradeId);
+
+    // 1. Fetch Entities
+    TradeTransaction trade = tradeRepository.findById(tradeId)
+        .orElseThrow(() -> new ResourceNotFoundException("Trade not found with ID: " + tradeId));
+
+    Bucket bucket = bucketRepository.findById(bucketId)
+        .orElseThrow(() -> new ResourceNotFoundException("Bucket not found with ID: " + bucketId));
+
+    InvestmentCompany company = trade.getCompany();
+    BigDecimal tradeAmount = trade.getInvestmentAmount();
+
+    // 2. Revert the Buying Power (Bucket) based on original Trade Type
+    if (trade.getType() == StockTransactionSide.BUY) {
+      // Undoing a BUY: Return the cash back to available buying power
+      bucket.setCurrentAmount(bucket.getCurrentAmount().add(tradeAmount));
+
+    } else if (trade.getType() == StockTransactionSide.SELL) {
+      // Undoing a SELL: Deduct the erroneously released cash from buying power
+      if (bucket.getCurrentAmount().compareTo(tradeAmount) < 0) {
+        throw new IllegalStateException("Cannot delete SELL trade. Insufficient funds in Bucket to reverse the cash release.");
+      }
+      bucket.setCurrentAmount(bucket.getCurrentAmount().subtract(tradeAmount));
+    }
+
+    // 3. Save updated bucket balance
+    bucketRepository.save(bucket);
+
+    // 4. Calculate Remaining Shares to maintain 'isActive' status
+    BigDecimal remainingShares = BigDecimal.ZERO;
+    if (company.getTransactions() != null) {
+      for (TradeTransaction t : company.getTransactions()) {
+        // Exclude the trade we are currently deleting from the math
+        if (!t.getId().equals(tradeId)) {
+          if (t.getType() == StockTransactionSide.BUY) {
+            remainingShares = remainingShares.add(t.getQuantity());
+          } else if (t.getType() == StockTransactionSide.SELL) {
+            remainingShares = remainingShares.subtract(t.getQuantity());
+          }
+        }
+      }
+    }
+
+    // 5. Toggle the Company's active status based on remaining shares
+    if (remainingShares.compareTo(BigDecimal.ZERO) <= 0 && Boolean.TRUE.equals(company.getIsActive())) {
+      company.setIsActive(false);
+      companyRepository.save(company);
+      log.info("Marked company {} as inactive due to 0 remaining shares.", company.getSymbol());
+
+    } else if (remainingShares.compareTo(BigDecimal.ZERO) > 0 && Boolean.FALSE.equals(company.getIsActive())) {
+      company.setIsActive(true);
+      companyRepository.save(company);
+      log.info("Restored company {} to active status.", company.getSymbol());
+    }
+
+    // 6. Delete the trade ledger record
+    tradeRepository.delete(trade);
+
+    log.info("Successfully deleted trade ID: {} and restored balances.", tradeId);
+  }
+
   // READ ALL
   public List<TradeTransactionResponseDTO> getAllTrades() {
     return tradeRepository.findAll().stream()

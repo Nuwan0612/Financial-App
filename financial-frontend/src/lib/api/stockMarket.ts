@@ -36,6 +36,7 @@ export type InvestmentCompany = {
   totalInvestedAmount: number
   currentTotalValue: number
   totalProfit: number
+  isActive: boolean
 }
 
 // Maps to InvestmentCompanyRequestDTO
@@ -103,5 +104,5 @@ export const tradesApi = {
   getByCompany: (companyId: number) => api.get<TradeTransaction[]>(`/trades/company/${companyId}`),
   create: (data: TradeTransactionRequest) => api.post<TradeTransaction>("/trades", data),
   update: (id: number, data: TradeTransactionRequest) => api.put<TradeTransaction>(`/trades/${id}`, data),
-  delete: (id: number) => api.delete(`/trades/${id}`)
+  delete: (id: number, bucketId: number) => api.delete(`/trades/${id}?bucketId=${bucketId}`)
 }

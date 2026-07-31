@@ -46,6 +46,7 @@ public class InvestmentCompanyService {
         .currentPrice(dto.currentPrice() != null ? dto.currentPrice() : BigDecimal.ZERO)
         .isSp20(dto.isSp20())
         .sector(sector)
+        .isActive(true)
         .build();
 
     InvestmentCompany savedCompany = companyRepository.save(company);
@@ -54,7 +55,7 @@ public class InvestmentCompanyService {
 
   public List<InvestmentCompanyResponseDTO> getAllCompanies() {
     log.info("Fetching all investment companies");
-    return companyRepository.findAll().stream()
+    return companyRepository.findByIsActiveTrue().stream()
         .map(this::mapToDTO)
         .toList();
   }
@@ -175,6 +176,7 @@ public class InvestmentCompanyService {
         currentPrice,
         sectorName,
         company.getIsSp20(),
+        company.getIsActive(),
         totalActiveShares,
         totalInvestedAmount,
         currentTotalValue,

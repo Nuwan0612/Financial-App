@@ -33,6 +33,13 @@ public class TradeTransactionController {
     return ResponseEntity.ok(tradeService.getAllTrades());
   }
 
+  @DeleteMapping("/{id}")
+  public ResponseEntity<Void> deleteTradeById(@PathVariable Long id, @RequestParam Long bucketId) {
+    log.info("REST request to delete trade ID: {} for Bucket ID: {}", id, bucketId);
+    tradeService.deleteTradeById(id, bucketId);
+    return ResponseEntity.noContent().build();
+  }
+
   @GetMapping("/company/{companyId}")
   public ResponseEntity<List<TradeTransactionResponseDTO>> getTradesByCompany(@PathVariable Long companyId) {
     log.info("REST request to get trades for company: {}", companyId);

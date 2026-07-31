@@ -12,16 +12,15 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, BarChart, Bar } from "recharts"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, PieChart, Pie, Cell, BarChart, Bar, Area, AreaChart, CartesianGrid } from "recharts"
 
-import { Holding } from "./types"
 import { fmt, fmtNum, SECTOR_COLORS } from "./utils"
-import { holdings, portfolioHistory, sectorData } from "./data"
 import CompanyDetail from "./CompanyDetail"
 import MetricGuide from "./MetricGuide"
 import { AddCompanyDialog, SectorDialog } from "./AddDialogs"
 
 import { investmentCompaniesApi, InvestmentCompany } from "@/lib/api/stockMarket"
+import { bucketsApi, snapshotsApi } from "@/lib/api/accounts"
 
 
 export default function StockMarketDetail({
@@ -43,16 +42,65 @@ id, name,
   const [companiesLoading, setCompaniesLoading] = useState(true)
   const [showAddCompany, setShowAddCompany] = useState(false)
 
-  useEffect(() => {
-  investmentCompaniesApi.getAll()
-    .then(res => setCompanies(res.data))
-    .catch(() => console.error("Failed to fetch companies"))
-    .finally(() => setCompaniesLoading(false))
-  }, [])
+  const [buyingPower, setBuyingPower] = useState(0) 
+  const [snapshot, setSnapshot] = useState<any[]>([])
 
-   if (selectedHolding) {
-    return <CompanyDetail investmentCompany={selectedHolding} onBack={() => setSelectedHolding(null)} />
+  useEffect(() => {
+    setCompaniesLoading(true)
+
+    Promise.all([
+      investmentCompaniesApi.getAll(),
+      bucketsApi.getBucketsByAccount(Number(id)),
+      snapshotsApi.getSnapshotsByAccount(Number(id)) 
+    ])
+      .then(([companiesRes, bucketsRes, snapshotRes]) => {
+        setCompanies(companiesRes.data)
+        
+        const currentBuyingPower = bucketsRes.data.length > 0 ? bucketsRes.data[0].currentAmount : 0
+        setBuyingPower(currentBuyingPower)
+        
+        // Save the snapshots to state
+        setSnapshot(snapshotRes.data)
+      })
+      .catch((error) => console.error("Failed to fetch data", error))
+      .finally(() => setCompaniesLoading(false))
+  }, [id])
+
+  const refreshData = () => {
+    Promise.all([
+      investmentCompaniesApi.getAll(),
+      bucketsApi.getBucketsByAccount(Number(id)) 
+    ])
+      .then(([companiesRes, bucketsRes]) => {
+        // 1. Update the master lists
+        setCompanies(companiesRes.data)
+        const currentBuyingPower = bucketsRes.data.length > 0 ? bucketsRes.data[0].currentAmount : 0
+        setBuyingPower(currentBuyingPower)
+        
+        // 2. Update the currently viewed company so the UI instantly changes!
+        if (selectedHolding) {
+          const updatedCompany = companiesRes.data.find(c => c.id === selectedHolding.id)
+          if (updatedCompany) {
+            setSelectedHolding(updatedCompany)
+          }
+        }
+      })
+      .catch((error) => console.error("Failed to refresh data", error))
   }
+
+  if (selectedHolding) {
+    return (
+      <CompanyDetail 
+        investmentCompany={selectedHolding} 
+        onBack={() => setSelectedHolding(null)} 
+        onRefresh={refreshData} 
+      />
+    )
+  }
+
+  // if (selectedHolding) {
+  //   return <CompanyDetail investmentCompany={selectedHolding} onBack={() => setSelectedHolding(null)} />
+  // }
 
   const totalValue = companies.reduce((s, c) => s + c.currentTotalValue, 0)
   const totalInvested = companies.reduce((s, c) => s + c.totalInvestedAmount, 0)
@@ -60,11 +108,38 @@ id, name,
 
   const sectors = ["ALL", ...Array.from(new Set(companies.map(c => c.sectorName)))]
 
+  const chartData = [...snapshot]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .map(s => ({
+      rawDate: s.date, 
+      amount: Number(s.balance || 0) 
+    }))
+
+  const CustomPortfolioTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-background border border-border p-3 rounded-lg shadow-md">
+          <p className="text-xs text-muted-foreground mb-1">
+            {new Date(label).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </p>
+          <p className="text-sm font-semibold text-primary">
+            Portfolio Value: {fmt(payload[0].value)}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
+
+
   const filteredCompanies = companies.filter(c => {
     const matchesSector = sectorFilter === "ALL" || c.sectorName === sectorFilter
     const matchesSymbol = c.symbol.toLowerCase().includes(symbolSearch.toLowerCase()) ||
       c.name.toLowerCase().includes(symbolSearch.toLowerCase())
-    return matchesSector && matchesSymbol
+      
+    const isCompanyActive = c.isActive !== false // Failsafe in case it is strictly false
+    
+    return matchesSector && matchesSymbol && isCompanyActive
   })
 
   const sectorPnL = Array.from(new Set(companies.map(c => c.sectorName))).map(sector => {
@@ -74,16 +149,20 @@ id, name,
     return { name: sector, pnl: Math.round(pnl) }
   })
 
- 
-  const buyingPower = 50000 
+  // Calculate dynamic sector allocation based on current total value
+  const dynamicSectorData = Array.from(new Set(companies.map(c => c.sectorName))).map(sector => {
+    const sectorTotalValue = companies
+      .filter(c => c.sectorName === sector)
+      .reduce((sum, c) => sum + c.currentTotalValue, 0)
+    
+    // Calculate percentage (avoid division by zero)
+    const percentage = totalValue > 0 ? (sectorTotalValue / totalValue) * 100 : 0
 
-
-  const filteredHoldings = holdings.filter(h => {
-    const matchesSector = sectorFilter === "ALL" || h.sector === sectorFilter
-    const matchesSymbol = h.symbol.toLowerCase().includes(symbolSearch.toLowerCase()) ||
-      h.name.toLowerCase().includes(symbolSearch.toLowerCase())
-    return matchesSector && matchesSymbol
-  })
+    return { 
+      name: sector, 
+      value: Number(percentage.toFixed(1)) // Rounds to 1 decimal place (e.g., 24.5)
+    }
+  }).filter(data => data.value > 0) // Hide sectors that have 0% allocation
 
 
   const eps = calcForm.netIncome && calcForm.sharesOutstanding
@@ -142,14 +221,49 @@ id, name,
               <CardTitle className="text-sm font-medium">Portfolio Value Over Time</CardTitle>
             </CardHeader>
             <CardContent>
-              <ResponsiveContainer width="100%" height={220}>
-                <LineChart data={portfolioHistory}>
-                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v: number) => fmt(v)} />
-                  <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+              {chartData.length === 0 ? (
+                <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground">
+                  No history available yet.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
+                    <XAxis 
+                      dataKey="rawDate" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} 
+                      dy={10}
+                      tickFormatter={(value) => {
+                        return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      }}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                      tickFormatter={v => `${(v / 1000).toFixed(0)}k`}
+                      dx={-10}
+                    />
+                    <Tooltip content={<CustomPortfolioTooltip />} cursor={{ stroke: 'var(--muted)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="amount" 
+                      stroke="var(--primary)" 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorAmount)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
             </CardContent>
           </Card>
 
@@ -161,12 +275,22 @@ id, name,
               <CardContent className="px-4 pb-4">
                 <ResponsiveContainer width="100%" height={160}>
                   <PieChart>
-                    <Pie data={sectorData} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value">
-                      {sectorData.map((_, i) => (
+                    {/* Replaced sectorData with dynamicSectorData */}
+                    <Pie 
+                      data={dynamicSectorData} 
+                      cx="50%" 
+                      cy="50%" 
+                      innerRadius={45} 
+                      outerRadius={70} 
+                      dataKey="value"
+                      nameKey="name"
+                    >
+                      {dynamicSectorData.map((_, i) => (
                         <Cell key={i} fill={SECTOR_COLORS[i % SECTOR_COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => `${v}%`} />
+                    {/* Added the name to the tooltip payload so it shows "Technology: 45%" */}
+                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>

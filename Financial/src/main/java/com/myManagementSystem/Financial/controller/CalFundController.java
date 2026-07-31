@@ -16,7 +16,7 @@ import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/cal-funds")
+@RequestMapping("/api/v1/cal-funds")
 @RequiredArgsConstructor
 public class CalFundController {
 

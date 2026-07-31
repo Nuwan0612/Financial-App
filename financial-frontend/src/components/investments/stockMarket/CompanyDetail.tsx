@@ -20,9 +20,11 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 export default function CompanyDetail({
   investmentCompany,
   onBack,
+  onRefresh
 }: {
   investmentCompany: InvestmentCompany
   onBack: () => void
+  onRefresh: () => void;
 }) {
 
   const params = useParams()
@@ -59,10 +61,10 @@ export default function CompanyDetail({
     })
   }, [investmentCompany.id, accountId])
 
-  const handleDeleteTrade = async (tradeId: number) => {
+  const handleDeleteTrade = async (tradeId: number, bucketid: number) => {
     if (!confirm("Are you sure you want to delete this transaction?")) return;
     try {
-      await tradesApi.delete(tradeId);
+      await tradesApi.delete(tradeId, bucketid);
       setCompanyTrades(prev => prev.filter(t => t.id !== tradeId));
     } catch (error) {
       console.error("Failed to delete trade");
@@ -88,7 +90,6 @@ export default function CompanyDetail({
 
   // --- Dynamic Financial Calculations from the backend fields ---
   const totalInvested = investmentCompany.totalInvestedAmount
-  const currentValue = investmentCompany.currentTotalValue
   const pnl = investmentCompany.totalProfit
   const pnlPct = totalInvested > 0 ? ((pnl / totalInvested) * 100).toFixed(2) : "0.00"
   const isProfit = pnl >= 0
@@ -175,11 +176,79 @@ export default function CompanyDetail({
         </div>
       </div>
 
-      <Tabs defaultValue="metrics">
+      <Tabs defaultValue="trades">
         <TabsList>
-          <TabsTrigger value="metrics">Metrics & Ratios</TabsTrigger>
           <TabsTrigger value="trades">Transaction Ledger</TabsTrigger>
+          <TabsTrigger value="metrics">Metrics & Ratios</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="trades" className="mt-6 space-y-4">
+
+          <div className="flex items-center justify-between">
+            <h2 className="text-base font-medium">Transaction History</h2>
+            <Button size="sm" onClick={() => setShowAddTrade(true)} className="gap-1.5">
+              <Plus className="h-4 w-4" /> Add Transaction
+            </Button>
+          </div>
+
+          <div className="rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-muted/50">
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground border border-border w-28">Date</th>
+                  <th className="text-center px-4 py-3 font-medium text-muted-foreground border border-border w-20">Type</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Quantity</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Price</th>
+                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Total</th>
+                  {/* <th className="text-center px-4 py-3 font-medium text-muted-foreground border border-border w-24">Actions</th> */}
+                </tr>
+              </thead>
+              <tbody>
+                {companyTrades.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
+                      No trades recorded for this company.
+                    </td>
+                  </tr>
+                ) : companyTrades.map(trade => {
+                  const tradeDate = new Date(trade.transactionDate).toLocaleDateString()
+                  
+                  return (
+                  <tr key={trade.id} className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3 border border-border text-muted-foreground text-xs">{tradeDate}</td>
+                    <td className="px-4 py-3 border border-border text-center">
+                      <Badge className={trade.type === "BUY"
+                        ? "bg-green-500/10 text-green-600 border-green-500/20"
+                        : "bg-red-500/10 text-red-600 border-red-500/20"}>
+                        {trade.type}
+                      </Badge>
+                    </td>
+                    <td className="px-4 py-3 border border-border text-right tabular-nums">{trade.quantity.toLocaleString()}</td>
+                    <td className="px-4 py-3 border border-border text-right tabular-nums">LKR {fmtNum(trade.executionPrice)}</td>
+                    <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
+                      {fmt(trade.investmentAmount)}
+                    </td>
+                    {/* <td className="px-4 py-3 border border-border text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
+                          <Edit className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                          onClick={() => handleDeleteTrade(trade.id, buckets[0].id)} 
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </td> */}
+                  </tr>
+                )})}
+              </tbody>
+            </table>
+          </div>
+        </TabsContent>
 
         <TabsContent value="metrics" className="mt-6 space-y-6">
           <div className="grid grid-cols-2 gap-6">
@@ -251,74 +320,6 @@ export default function CompanyDetail({
             </div>
           </div>
         </TabsContent>
-
-        <TabsContent value="trades" className="mt-6 space-y-4">
-
-          <div className="flex items-center justify-between">
-            <h2 className="text-base font-medium">Transaction History</h2>
-            <Button size="sm" onClick={() => setShowAddTrade(true)} className="gap-1.5">
-              <Plus className="h-4 w-4" /> Add Transaction
-            </Button>
-          </div>
-
-          <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-muted/50">
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground border border-border w-28">Date</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground border border-border w-20">Type</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Quantity</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Price</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-36">Total</th>
-                  <th className="text-center px-4 py-3 font-medium text-muted-foreground border border-border w-24">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companyTrades.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
-                      No trades recorded for this company.
-                    </td>
-                  </tr>
-                ) : companyTrades.map(trade => {
-                  const tradeDate = new Date(trade.transactionDate).toLocaleDateString()
-                  
-                  return (
-                  <tr key={trade.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 border border-border text-muted-foreground text-xs">{tradeDate}</td>
-                    <td className="px-4 py-3 border border-border text-center">
-                      <Badge className={trade.type === "BUY"
-                        ? "bg-green-500/10 text-green-600 border-green-500/20"
-                        : "bg-red-500/10 text-red-600 border-red-500/20"}>
-                        {trade.type}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 border border-border text-right tabular-nums">{trade.quantity.toLocaleString()}</td>
-                    <td className="px-4 py-3 border border-border text-right tabular-nums">LKR {fmtNum(trade.executionPrice)}</td>
-                    <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
-                      {fmt(trade.investmentAmount)}
-                    </td>
-                    <td className="px-4 py-3 border border-border text-center">
-                      <div className="flex items-center justify-center gap-2">
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-primary">
-                          <Edit className="h-3.5 w-3.5" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          onClick={() => handleDeleteTrade(trade.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                )})}
-              </tbody>
-            </table>
-          </div>
-        </TabsContent>
       </Tabs>
 
       <AddTradeDialog
@@ -331,8 +332,20 @@ export default function CompanyDetail({
         accountName={account?.name || "Loading..."}
         bucketId={buckets.length > 0 ? buckets[0].id : 0} 
         bucketName={buckets.length > 0 ? buckets[0].name : "Loading..."}
+        currentPrice={investmentCompany.currentPrice}
+        buyingPower={buckets.length > 0 ? buckets[0].currentAmount : 0}
+        totalActiveShares={investmentCompany.totalActiveShares}
         
-        onSuccess={(newTrade) => setCompanyTrades(prev => [newTrade, ...prev])}
+        onSuccess={(newTrade) => {
+          // 1. Add the trade to the local list so it shows in the table
+          setCompanyTrades(prev => [newTrade, ...prev])
+          
+          // 2. Silently fetch fresh backend data to update shares, P&L, and buckets
+          onRefresh() 
+        }}
+
+        // onSuccess={() => window.location.reload()}
+        // onSuccess={(newTrade) => setCompanyTrades(prev => [newTrade, ...prev])}
       />
 
       {/* Update Price Dialog */}

@@ -9,6 +9,7 @@ public record InvestmentCompanyResponseDTO(
     BigDecimal currentPrice,
     String sectorName,
     Boolean isSp20,
+    Boolean isActive,
 
     // --- Dynamically Calculated Financial Metrics ---
     BigDecimal totalActiveShares,

@@ -25,6 +25,9 @@ public class InvestmentCompany {
   @Column(nullable = false)
   private String name;
 
+  @Column(name = "is_active")
+  private Boolean isActive;
+
   @Column(name = "current_price", precision = 19, scale = 4)
   private BigDecimal currentPrice;
 

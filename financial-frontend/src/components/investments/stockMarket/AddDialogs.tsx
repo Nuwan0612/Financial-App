@@ -430,6 +430,9 @@ export function AddTradeDialog({
   accountName,
   bucketId,
   bucketName,
+  currentPrice,
+  buyingPower,
+  totalActiveShares,
 }: {
   open: boolean
   onClose: () => void
@@ -439,6 +442,9 @@ export function AddTradeDialog({
   accountName: string
   bucketId: number
   bucketName: string
+  currentPrice: number
+  buyingPower: number
+  totalActiveShares: number
 }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -447,7 +453,7 @@ export function AddTradeDialog({
     companyId: companyId,
     type: "BUY",
     quantity: 0,
-    executionPrice: 0,
+    executionPrice: currentPrice,
     accountId: accountId, 
     bucketId: bucketId,  
   })
@@ -459,18 +465,43 @@ export function AddTradeDialog({
         companyId, 
         type: "BUY", 
         quantity: 0, 
-        executionPrice: 0, 
+        executionPrice: currentPrice, 
         accountId, 
         bucketId 
       })
       setError(null)
     }
-  }, [open, companyId, accountId, bucketId])
+  }, [open, companyId, accountId, bucketId, currentPrice])
 
   const handleSubmit = async () => {
-    if (form.quantity <= 0) { setError("Quantity must be greater than zero."); return }
-    if (form.executionPrice <= 0) { setError("Execution price must be greater than zero."); return }
+    // 1. Basic Input Validations
+    if (form.quantity <= 0) { 
+      setError("Quantity must be greater than zero."); 
+      return; 
+    }
+    if (form.executionPrice <= 0) { 
+      setError("Execution price must be greater than zero."); 
+      return; 
+    }
 
+    // 2. Business Logic Validations
+    const totalTradeValue = form.quantity * form.executionPrice;
+
+    if (form.type === "BUY") {
+      if (totalTradeValue > buyingPower) {
+        setError(`Insufficient buying power. This trade costs LKR ${totalTradeValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}, but you only have LKR ${buyingPower.toLocaleString(undefined, { minimumFractionDigits: 2 })} available.`);
+        return;
+      }
+    }
+
+    if (form.type === "SELL") {
+      if (form.quantity > totalActiveShares) {
+        setError(`Insufficient shares. You are trying to sell ${form.quantity} shares, but you only own ${totalActiveShares}.`);
+        return;
+      }
+    }
+
+    // 3. API Execution
     try {
       setLoading(true)
       setError(null)
@@ -478,7 +509,7 @@ export function AddTradeDialog({
       onSuccess(res.data)
       onClose()
     } catch {
-      setError("Failed to add transaction. Please try again.")
+      setError("Failed to add transaction. Please check your network and try again.")
     } finally {
       setLoading(false)
     }
@@ -512,21 +543,40 @@ export function AddTradeDialog({
             </div>
           </div>
 
-          {/* Type Selection */}
-          <div className="space-y-1.5">
-            <Label>Transaction Type</Label>
-            <Select
-              value={form.type}
-              onValueChange={(v: "BUY" | "SELL") => setForm({ ...form, type: v })}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Select type" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="BUY" className="text-green-600 font-medium">BUY</SelectItem>
-                <SelectItem value="SELL" className="text-red-600 font-medium">SELL</SelectItem>
-              </SelectContent>
-            </Select>
+          {/* Type Selection & Dynamic Capacity */}
+          <div className="flex gap-3">
+            
+            {/* Left Column: Dropdown */}
+            <div className="space-y-1.5 flex-1">
+              <Label>Transaction Type</Label>
+              <Select
+                value={form.type}
+                onValueChange={(v: "BUY" | "SELL") => setForm({ ...form, type: v })}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select type" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="BUY" className="text-green-600 font-medium">BUY</SelectItem>
+                  <SelectItem value="SELL" className="text-red-600 font-medium">SELL</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Right Column: Styled Metric Box */}
+            <div className="space-y-1.5 flex-1">
+              <Label className="text-muted-foreground">
+                {form.type === "BUY" ? "Available Buying Power" : "Available Shares to Sell"}
+              </Label>
+              <div className="flex items-center h-9 w-full rounded-md border border-border bg-muted/30 px-3 py-1 shadow-sm">
+                <span className={`text-sm font-semibold ${form.type === "BUY" ? "text-blue-500" : "text-foreground"}`}>
+                  {form.type === "BUY" 
+                    ? `LKR ${buyingPower.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
+                    : totalActiveShares.toLocaleString()}
+                </span>
+              </div>
+            </div>
+            
           </div>
 
           <div className="flex gap-3">
@@ -551,7 +601,7 @@ export function AddTradeDialog({
                 type="number"
                 min="0"
                 step="0.01"
-                placeholder="0.00"
+                placeholder={currentPrice.toString()}
                 value={form.executionPrice || ""}
                 onChange={e => setForm({ ...form, executionPrice: Number(e.target.value) })}
               />

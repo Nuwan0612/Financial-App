@@ -15,6 +15,9 @@ public interface InvestmentCompanyRepository extends JpaRepository<InvestmentCom
   @EntityGraph(attributePaths = {"sector", "metric"})
   List<InvestmentCompany> findAll();
 
+  @EntityGraph(attributePaths = {"sector", "metric"})
+  List<InvestmentCompany> findByIsActiveTrue();
+
   @EntityGraph(attributePaths = {"sector", "metric", "transactions"})
   Optional<InvestmentCompany> findById(Long id);
 

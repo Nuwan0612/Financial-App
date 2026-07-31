@@ -14,7 +14,7 @@ import java.util.List;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/cal-transactions")
+@RequestMapping("/api/v1/cal-transactions")
 @RequiredArgsConstructor
 public class CalTransactionController {
 
