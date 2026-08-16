@@ -16,6 +16,7 @@ import { fmt } from "./helpers"
 import { CategoryTab } from "./CategoryTab"
 import { AddCalFundDialog } from "./Dialogs" // Adjust import path if needed
 import { bucketsApi } from "@/lib/api/accounts"
+import { calFundsApi } from "@/lib/api/cal"
  // Adjust import path to where bucketsApi is defined
 
 export default function UnitTrustDetail({ id, name }: { id: number; name: string }) {
@@ -26,16 +27,26 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
   const [bucket, setBucket] = useState<any | null>(null)
   const [isLoadingBucket, setIsLoadingBucket] = useState(true)
 
-  // Fetch the bucket details automatically when the component mounts
+  const [funds, setFunds] = useState<any[]>([]) // Replace 'any' with your fund type if available
+
   useEffect(() => {
-    setIsLoadingBucket(true)
-    bucketsApi.getBucketsByAccount(id)
-      .then(res => {
-        if (res.data && res.data.length > 0) {
-          setBucket(res.data[0]) // Save the entire bucket object here
+    setIsLoadingBucket(true) // (You might want to rename this state to just 'isLoading' since it now loads both)
+
+    Promise.all([
+      bucketsApi.getBucketsByAccount(id),
+      calFundsApi.getAll()
+    ])
+      .then(([bucketsRes, fundsRes]) => {
+        // 1. Handle Bucket Data
+        if (bucketsRes.data && bucketsRes.data.length > 0) {
+          setBucket(bucketsRes.data[0]) 
         }
+
+        // 2. Handle Funds Data (Filter by account ID immediately)
+        const accountFunds = fundsRes.data.filter(fund => fund.accountId === Number(id))
+        setFunds(accountFunds)
       })
-      .catch((error) => console.error("Failed to fetch buckets for account", error))
+      .catch((error) => console.error("Failed to fetch account data", error))
       .finally(() => setIsLoadingBucket(false))
   }, [id])
 
@@ -180,13 +191,13 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
         </div>
 
         <TabsContent value="UNIT_TRUST">
-          <CategoryTab category="UNIT_TRUST" />
+          <CategoryTab funds={funds.filter(f => f.category === "UNIT_TRUST")} />
         </TabsContent>
         <TabsContent value="T_BILL">
-          <CategoryTab category="T_BILL" />
+          <CategoryTab funds={funds.filter(f => f.category === "T_BILL")} />
         </TabsContent>
         <TabsContent value="BOND">
-          <CategoryTab category="BOND" />
+          <CategoryTab funds={funds.filter(f => f.category === "BOND")} />
         </TabsContent>
       </Tabs>
 

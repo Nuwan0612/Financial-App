@@ -16,6 +16,8 @@ export interface CalFundResponseDTO {
   category: CalAssetCategory
   accountId: number
   bucketId: number
+  totalInvested: number
+  totalProfit: number
 }
 
 export const calFundsApi = {
