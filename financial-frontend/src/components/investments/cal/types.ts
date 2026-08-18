@@ -7,6 +7,8 @@ export type CalFund = {
   category: CalAssetCategory
   currentValue: number
   isActive: boolean
+  accountId: number
+  bucketId: number
   totalInvested: number
   totalProfit: number
 }

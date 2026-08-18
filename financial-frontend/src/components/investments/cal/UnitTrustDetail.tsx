@@ -8,16 +8,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis,
-  Tooltip, PieChart, Pie, Cell,
+  Tooltip, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid
 } from "recharts"
 
 import { funds, growthHistory, PIE_COLORS } from "./constants"
 import { fmt } from "./helpers"
-import { CategoryTab } from "./CategoryTab"
 import { AddCalFundDialog } from "./Dialogs" // Adjust import path if needed
-import { bucketsApi } from "@/lib/api/accounts"
-import { calFundsApi } from "@/lib/api/cal"
- // Adjust import path to where bucketsApi is defined
+import { bucketsApi, snapshotsApi } from "@/lib/api/accounts"
+import { CalFundResponseDTO, calFundsApi } from "@/lib/api/cal"
+import { CategoryTab } from "./CategoryTab"
+
 
 export default function UnitTrustDetail({ id, name }: { id: number; name: string }) {
   const router = useRouter()
@@ -27,16 +27,18 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
   const [bucket, setBucket] = useState<any | null>(null)
   const [isLoadingBucket, setIsLoadingBucket] = useState(true)
 
-  const [funds, setFunds] = useState<any[]>([]) // Replace 'any' with your fund type if available
+  const [funds, setFunds] = useState<CalFundResponseDTO[]>([])
+  const [snapshot, setSnapshot] = useState<any[]>([])
 
   useEffect(() => {
     setIsLoadingBucket(true) // (You might want to rename this state to just 'isLoading' since it now loads both)
 
     Promise.all([
       bucketsApi.getBucketsByAccount(id),
-      calFundsApi.getAll()
+      calFundsApi.getAll(),
+      snapshotsApi.getSnapshotsByAccount(Number(id))
     ])
-      .then(([bucketsRes, fundsRes]) => {
+      .then(([bucketsRes, fundsRes, snapshotRes]) => {
         // 1. Handle Bucket Data
         if (bucketsRes.data && bucketsRes.data.length > 0) {
           setBucket(bucketsRes.data[0]) 
@@ -45,6 +47,9 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
         // 2. Handle Funds Data (Filter by account ID immediately)
         const accountFunds = fundsRes.data.filter(fund => fund.accountId === Number(id))
         setFunds(accountFunds)
+
+        // 3. Handle Snapshot Data
+        setSnapshot(snapshotRes.data)
       })
       .catch((error) => console.error("Failed to fetch account data", error))
       .finally(() => setIsLoadingBucket(false))
@@ -74,6 +79,30 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
     { name: "T-Bill", value: totalInvested > 0 ? Math.round((tBillTotal / totalInvested) * 100) : 0 },
     { name: "Bond", value: totalInvested > 0 ? Math.round((bondTotal / totalInvested) * 100) : 0 },
   ]
+
+  // ── Chart Formatting ──
+  const chartData = [...snapshot]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .map(s => ({
+      rawDate: s.date, 
+      amount: Number(s.balance || 0) 
+    }))
+
+  const CustomPortfolioTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-background border border-border p-3 rounded-lg shadow-md">
+          <p className="text-xs text-muted-foreground mb-1">
+            {new Date(label).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </p>
+          <p className="text-sm font-semibold text-primary">
+            Portfolio Value: {fmt(payload[0].value)}
+          </p>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1400px" }}>
@@ -159,14 +188,49 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
           <CardTitle className="text-sm font-medium">Account Growth Over Time</CardTitle>
         </CardHeader>
         <CardContent className="px-4 pb-4">
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={growthHistory}>
-              <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip formatter={(v: number) => fmt(v)} />
-              <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          {chartData.length === 0 ? (
+            <div className="h-[200px] flex items-center justify-center text-sm text-muted-foreground">
+              No history available yet.
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={200}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
+                <XAxis 
+                  dataKey="rawDate" 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }} 
+                  dy={10}
+                  tickFormatter={(value) => {
+                    return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  }}
+                />
+                <YAxis 
+                  axisLine={false} 
+                  tickLine={false} 
+                  tick={{ fill: 'var(--muted-foreground)', fontSize: 11 }}
+                  tickFormatter={v => `${(v / 1000).toFixed(0)}k`}
+                  dx={-10}
+                />
+                <Tooltip content={<CustomPortfolioTooltip />} cursor={{ stroke: 'var(--muted)', strokeWidth: 1, strokeDasharray: '4 4' }} />
+                <Area 
+                  type="monotone" 
+                  dataKey="amount" 
+                  stroke="var(--primary)" 
+                  strokeWidth={2}
+                  fillOpacity={1} 
+                  fill="url(#colorAmount)" 
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
         </CardContent>
       </Card>
 
@@ -191,13 +255,25 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
         </div>
 
         <TabsContent value="UNIT_TRUST">
-          <CategoryTab funds={funds.filter(f => f.category === "UNIT_TRUST")} />
+          <CategoryTab
+            category="UNIT_TRUST"
+            funds={funds}
+            onFundsUpdated={setFunds}
+          />
         </TabsContent>
         <TabsContent value="T_BILL">
-          <CategoryTab funds={funds.filter(f => f.category === "T_BILL")} />
+          <CategoryTab
+            category="T_BILL"
+            funds={funds}
+            onFundsUpdated={setFunds}
+          />
         </TabsContent>
         <TabsContent value="BOND">
-          <CategoryTab funds={funds.filter(f => f.category === "BOND")} />
+          <CategoryTab
+            category="BOND"
+            funds={funds}
+            onFundsUpdated={setFunds}
+          />
         </TabsContent>
       </Tabs>
 

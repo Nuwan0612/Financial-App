@@ -1,9 +1,11 @@
-import { X } from "lucide-react"
+import { useEffect, useState } from "react"
+import { X, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { CalFund } from "./types"
-import { transactions } from "./constants"
+import { calTransactionsApi } from "@/lib/api/cal"
 import { fmt, fmtDate } from "./helpers"
+import { CalTransactionResponseDTO } from "@/lib/api/cal"
 
 export function FundTransactionPanel({
   fund,
@@ -12,8 +14,17 @@ export function FundTransactionPanel({
   fund: CalFund
   onClose: () => void
 }) {
-  const fundTxns = transactions.filter(t => t.calFundId === fund.id)
+  const [transactions, setTransactions] = useState<CalTransactionResponseDTO[]>([])
+  const [loading, setLoading] = useState(true)
   const isProfit = fund.totalProfit >= 0
+
+  useEffect(() => {
+    setLoading(true)
+    calTransactionsApi.getByFund(fund.id)
+      .then(res => setTransactions(res.data))
+      .catch(() => console.error("Failed to fetch transactions"))
+      .finally(() => setLoading(false))
+  }, [fund.id])
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -43,7 +54,11 @@ export function FundTransactionPanel({
         </div>
       </div>
 
-      {fundTxns.length === 0 ? (
+      {loading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : transactions.length === 0 ? (
         <div className="py-8 text-center">
           <p className="text-sm text-muted-foreground">No transactions yet.</p>
         </div>
@@ -57,9 +72,11 @@ export function FundTransactionPanel({
             </tr>
           </thead>
           <tbody>
-            {fundTxns.map(t => (
+            {transactions.map(t => (
               <tr key={t.id} className="hover:bg-muted/10">
-                <td className="px-4 py-2 border border-border text-muted-foreground text-xs">{fmtDate(t.transactionDate)}</td>
+                <td className="px-4 py-2 border border-border text-muted-foreground text-xs">
+                  {fmtDate(t.transactionDate)}
+                </td>
                 <td className="px-4 py-2 border border-border text-center">
                   <Badge className={t.type === "INVEST"
                     ? "bg-green-500/10 text-green-600 border-green-500/20 text-xs"
