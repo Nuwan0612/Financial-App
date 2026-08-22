@@ -117,7 +117,7 @@ const SubCategoryTable = () => {
               ))}
               <tr>
                 <td colSpan={2} className="px-4 py-3 border border-border text-center font-medium ">
-                  Toatal
+                  Total
                 </td>
                 <td colSpan={1} className="px-4 py-3 border bg-muted border-border text-center font-medium">
                   {subCategories.reduce((sum, item) => sum + item.percentage, 0)}%
