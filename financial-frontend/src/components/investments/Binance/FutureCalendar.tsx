@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { FutureJournal } from "./types"
 import { futureJournals, MONTHS, CURRENT_YEAR } from "./constants"
 import { fmtUSD, getDaysInMonth, getFirstDayOfMonth } from "./helpers"
-import { FutureJournalDialog } from "./FutureJournalDialog"
+import { FutureJournalDialog } from "./FutureDialog"
 
 export function FutureCalendar() {
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
@@ -42,43 +42,47 @@ export function FutureCalendar() {
 
   return (
     <div className="space-y-4">
-      {/* Year/month totals strip */}
-      <div className="grid grid-cols-2 gap-3">
-        <Card>
-          <CardContent className="pt-3 pb-3">
-            <p className="text-xs text-muted-foreground">{selectedYear} Total P&L</p>
-            <p className={`text-base font-semibold mt-0.5 ${yearProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {yearProfit >= 0 ? "+" : ""}{fmtUSD(yearProfit)}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-3 pb-3">
-            <p className="text-xs text-muted-foreground">{MONTHS[selectedMonth]} {selectedYear} P&L</p>
-            <p className={`text-base font-semibold mt-0.5 ${monthProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {monthProfit >= 0 ? "+" : ""}{fmtUSD(monthProfit)}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
       <div className="grid grid-cols-[220px_1fr] gap-4">
         {/* Left — year + month selectors */}
         <div className="space-y-3">
           <Card>
-            <CardHeader className="pb-2 pt-3 px-3">
-              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Year</CardTitle>
-            </CardHeader>
-            <CardContent className="px-3 pb-3 space-y-1">
-              {[CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1].map(y => (
-                <button key={y} onClick={() => setSelectedYear(y)}
-                  className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors
-                    ${selectedYear === y ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted/50"}`}>
-                  <span>{y}</span>
-                </button>
-              ))}
-            </CardContent>
-          </Card>
+  <CardHeader className="pb-2 pt-3 px-3">
+    <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Year</CardTitle>
+  </CardHeader>
+  <CardContent className="px-3 pb-3 space-y-1">
+    {[CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1].map(y => {
+      // Calculate profit for this specific year
+      const yProfit = journals
+        .filter(j => new Date(j.date).getFullYear() === y)
+        .reduce((s, j) => s + j.profit, 0)
+
+      return (
+        <button 
+          key={y} 
+          onClick={() => setSelectedYear(y)}
+          className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors
+            ${selectedYear === y ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted/50"}`}
+        >
+          <span>{y}</span>
+          
+          {yProfit !== 0 && (
+            <span 
+              className={`text-xs ${
+                selectedYear === y 
+                  ? "text-primary-foreground/80" 
+                  : yProfit > 0 
+                    ? "text-green-600" 
+                    : "text-destructive"
+              }`}
+            >
+              {yProfit > 0 ? "+" : ""}{yProfit.toFixed(0)}
+            </span>
+          )}
+        </button>
+      )
+    })}
+  </CardContent>
+</Card>
           <Card>
             <CardHeader className="pb-2 pt-3 px-3">
               <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Month</CardTitle>

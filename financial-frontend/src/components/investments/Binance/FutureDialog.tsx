@@ -117,3 +117,40 @@ export function FutureJournalDialog({
     </Dialog>
   )
 }
+
+interface TransferDialogProps {
+  open: boolean
+  onClose: () => void
+  spotBalance: number
+}
+
+export function TransferDialog({ open, onClose, spotBalance }: TransferDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Transfer Spot → Futures</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-lg bg-muted/30 px-3 py-2 space-y-1">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Available in Spot</span>
+              <span className="font-medium">{fmtUSD(spotBalance)}</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Amount (USD)</Label>
+            <Input type="number" placeholder="0.00" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Funds will be moved from your Spot wallet to your Futures account.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>Transfer</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -10,6 +10,8 @@ public record CalTransactionResponseDTO(
         String fundName,
         CalTransactionType type,
         BigDecimal amount,
-        LocalDateTime transactionDate
+        LocalDateTime transactionDate,
+        BigDecimal buyPrice,
+        BigDecimal numberOfUnits
 ) {
 }

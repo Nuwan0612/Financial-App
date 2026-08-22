@@ -14,6 +14,11 @@ public record CalTransactionRequestDTO(
 
         @NotNull(message = "Amount is required")
         @Positive(message = "Amount must be greater than zero")
-        BigDecimal amount
+        BigDecimal amount,
+
+        @NotNull(message = "Unit Price is required")
+        BigDecimal buyPrice,
+
+        BigDecimal numberOfUnits
 ) {
 }

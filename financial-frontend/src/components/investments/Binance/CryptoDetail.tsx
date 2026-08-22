@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ArrowLeft, TrendingUp, TrendingDown } from "lucide-react"
+import { ArrowLeft, TrendingUp, TrendingDown, ArrowLeftRight } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -21,6 +21,10 @@ import { fmtUSD, fmtLKR, fmtBoth } from "./helpers"
 
 import { CoinTransactionPanel } from "./CoinTransactionPanel"
 import { FutureCalendar } from "./FutureCalendar"
+import { FuturesLockedOverlay } from "./FuturesLockedOverlay" 
+import { TransferDialog } from "./FutureDialog"             
+
+const SPOT_ACCOUNT_BALANCE_USD = 2500;
 
 export default function CryptoDetail({ id, name }: { id: number; name: string }) {
   const router = useRouter()
@@ -41,6 +45,9 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
     { name: "Spot", value: Math.round((spotInvestedUSD / totalInvestedUSD) * 100) },
     { name: "Futures", value: Math.round((futureInvestedUSD / totalInvestedUSD) * 100) },
   ]
+
+  const [showSpotToFutureDialog, setShowSpotToFutureDialog] = useState(false)
+  const [hasFutureAccount, setHasFutureAccount] = useState(false) 
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1400px" }}>
@@ -77,16 +84,17 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
           </CardContent>
         </Card>
 
-        <Card>
-          <CardContent className="pt-4 pb-4">
+        <Card className="relative overflow-hidden flex flex-col justify-center">
+          <CardContent className={`pt-4 pb-4 ${!hasFutureAccount ? "blur-[2px] opacity-20 pointer-events-none" : ""}`}>
             <p className="text-xs text-muted-foreground">Futures P&L</p>
             <p className={`text-base font-semibold mt-1 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {futureProfitUSD >= 0 ? "+" : ""}{fmtUSD(futureProfitUSD)}
+              {!hasFutureAccount ? "$0.00" : `${futureProfitUSD >= 0 ? "+" : ""}${fmtUSD(futureProfitUSD)}`}
             </p>
             <p className={`text-xs mt-0.5 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {fmtLKR(futureProfitUSD * EXCHANGE_RATE)}
+              {!hasFutureAccount ? "LKR 0" : fmtLKR(futureProfitUSD * EXCHANGE_RATE)}
             </p>
           </CardContent>
+          {!hasFutureAccount && <FuturesLockedOverlay compact onUnlock={() => setHasFutureAccount(true)} />}
         </Card>
 
         <Card>
@@ -132,20 +140,27 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-4">
-            <CardTitle className="text-xs font-medium text-muted-foreground">Futures Monthly P&L</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4">
-            <ResponsiveContainer width="100%" height={160}>
-              <LineChart data={futureHistory}>
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
-                <Tooltip formatter={(v: number) => fmtUSD(v)} />
-                <Line type="monotone" dataKey="pnl" stroke="#10b981" strokeWidth={2} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </CardContent>
+        <Card className="relative overflow-hidden">
+          <div className={!hasFutureAccount ? "blur-[4px] opacity-40 pointer-events-none" : ""}>
+            <CardHeader className="pb-2 pt-4 px-4">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Futures Monthly P&L</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              {hasFutureAccount ? (
+                <ResponsiveContainer width="100%" height={160}>
+                  <LineChart data={futureHistory}>
+                    <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
+                    <Tooltip formatter={(v: number) => fmtUSD(v)} />
+                    <Line type="monotone" dataKey="pnl" stroke="#10b981" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[160px] w-full bg-muted/20 rounded-lg border border-dashed border-border/50" />
+              )}
+            </CardContent>
+          </div>
+          {!hasFutureAccount && <FuturesLockedOverlay onUnlock={() => setHasFutureAccount(true)} />}
         </Card>
       </div>
 
@@ -158,6 +173,36 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
 
         {/* Spot tab */}
         <TabsContent value="spot" className="mt-4 space-y-3">
+          <div className="grid grid-cols-3 gap-3">
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <p className="text-xs text-muted-foreground">Spot Balance</p>
+                <p className="text-base font-semibold mt-0.5">{fmtUSD(SPOT_ACCOUNT_BALANCE_USD)}</p>
+                <p className="text-xs text-muted-foreground">{fmtLKR(SPOT_ACCOUNT_BALANCE_USD * EXCHANGE_RATE)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-3 pb-3">
+                <p className="text-xs text-muted-foreground">Total Spot Value</p>
+                <p className="text-base font-semibold mt-0.5">{fmtUSD(spotCurrentUSD)}</p>
+                <p className="text-xs text-muted-foreground">{fmtLKR(spotCurrentUSD * EXCHANGE_RATE)}</p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-3 pb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Transfer to Futures</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Move funds between accounts</p>
+                </div>
+                <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
+                  onClick={() => setShowSpotToFutureDialog(true)}>
+                  <ArrowLeftRight className="h-3.5 w-3.5" />
+                  Transfer
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="rounded-lg border border-border overflow-hidden">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -182,8 +227,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                     <tr
                       key={coin.id}
                       onClick={() => setSelectedCoin(isSelected ? null : coin)}
-                      className={`hover:bg-muted/20 transition-colors cursor-pointer
-                        ${isSelected ? "bg-primary/5" : ""}`}
+                      className={`hover:bg-muted/20 transition-colors cursor-pointer ${isSelected ? "bg-primary/5" : ""}`}
                     >
                       <td className="px-4 py-3 border border-border">
                         <div className="flex items-center gap-2">
@@ -201,8 +245,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                       <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
                         {fmtUSD(invested)}
                       </td>
-                      <td className={`px-4 py-3 border border-border text-right tabular-nums font-medium
-                        ${isProfit ? "text-green-600" : "text-destructive"}`}>
+                      <td className={`px-4 py-3 border border-border text-right tabular-nums font-medium ${isProfit ? "text-green-600" : "text-destructive"}`}>
                         <div className="flex items-center justify-end gap-1">
                           {isProfit ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                           {isProfit ? "+" : "-"}{fmtUSD(Math.abs(pnl))}
@@ -222,27 +265,62 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
 
         {/* Futures tab */}
         <TabsContent value="futures" className="mt-4 space-y-4">
-          {/* Futures account summary */}
-          <div className="grid grid-cols-2 gap-3">
-            <Card>
-              <CardContent className="pt-3 pb-3">
-                <p className="text-xs text-muted-foreground">Account Balance</p>
-                <p className="text-base font-semibold mt-0.5">{fmtBoth(FUTURE_ACCOUNT_BALANCE_USD)}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-3 pb-3">
-                <p className="text-xs text-muted-foreground">Total Futures P&L</p>
-                <p className={`text-base font-semibold mt-0.5 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-                  {futureProfitUSD >= 0 ? "+" : ""}{fmtBoth(futureProfitUSD)}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <FutureCalendar />
+          {!hasFutureAccount ? (
+            <div className="relative">
+              <div className="pointer-events-none select-none blur-sm opacity-50 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <Card><CardContent className="pt-3 pb-3"><p className="text-xs text-muted-foreground">Account Balance</p><p className="text-base font-semibold mt-0.5">$0.00 / LKR 0</p></CardContent></Card>
+                  <Card><CardContent className="pt-3 pb-3"><p className="text-xs text-muted-foreground">Total Futures P&L</p><p className="text-base font-semibold mt-0.5 text-muted-foreground">$0.00</p></CardContent></Card>
+                </div>
+                <Card>
+                  <CardHeader className="pb-2 pt-4 px-4"><CardTitle className="text-xs font-medium text-muted-foreground">Futures Monthly P&L</CardTitle></CardHeader>
+                  <CardContent className="px-4 pb-4"><div className="h-40 bg-muted/30 rounded-lg" /></CardContent>
+                </Card>
+                <div className="h-64 rounded-lg bg-muted/20 border border-border" />
+              </div>
+              <FuturesLockedOverlay onUnlock={() => setHasFutureAccount(true)} />
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 gap-3">
+                <Card>
+                  <CardContent className="pt-3 pb-3">
+                    <p className="text-xs text-muted-foreground">Account Balance</p>
+                    <p className="text-base font-semibold mt-0.5">{fmtBoth(FUTURE_ACCOUNT_BALANCE_USD)}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-3 pb-3">
+                    <p className="text-xs text-muted-foreground">Total Futures P&L</p>
+                    <p className={`text-base font-semibold mt-0.5 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
+                      {futureProfitUSD >= 0 ? "+" : ""}{fmtBoth(futureProfitUSD)}
+                    </p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-3 pb-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-muted-foreground">Transfer to Spot</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Move funds between accounts</p>
+                    </div>
+                    <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setShowSpotToFutureDialog(true)}>
+                      <ArrowLeftRight className="h-3.5 w-3.5" />
+                      Transfer
+                    </Button>
+                  </CardContent>
+                </Card>
+              </div>
+              <FutureCalendar />
+            </>
+          )}
         </TabsContent>
       </Tabs>
+
+      <TransferDialog 
+        open={showSpotToFutureDialog} 
+        onClose={() => setShowSpotToFutureDialog(false)} 
+        spotBalance={SPOT_ACCOUNT_BALANCE_USD} 
+      />
     </div>
   )
 }

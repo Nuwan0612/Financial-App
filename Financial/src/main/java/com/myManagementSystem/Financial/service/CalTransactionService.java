@@ -39,7 +39,7 @@ public class CalTransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("Fund not found"));
 
         Bucket bucket = fund.getBucket();
-        Account account = fund.getAccount(); // <-- FETCH THE LINKED ACCOUNT
+        Account account = fund.getAccount();
 
         if (request.type() == CalTransactionType.INVEST) {
             // Money goes into the fund, invested capital goes up
@@ -79,6 +79,7 @@ public class CalTransactionService {
         CalTransaction transaction = CalTransaction.builder()
                 .type(request.type())
                 .amount(request.amount())
+                .buyPrice(request.buyPrice())
                 .transactionDate(LocalDateTime.now())
                 .calFund(fund)
                 .build();
@@ -98,7 +99,9 @@ public class CalTransactionService {
                 tx.getCalFund().getName(),
                 tx.getType(),
                 tx.getAmount(),
-                tx.getTransactionDate()
+                tx.getTransactionDate(),
+                tx.getBuyPrice(),
+                tx.getNumberOfUnits()
         );
     }
 }

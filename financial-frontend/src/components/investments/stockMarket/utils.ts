@@ -13,3 +13,4 @@ export const fmtNum = (n: number) =>
   new Intl.NumberFormat("en-LK", { 
     maximumFractionDigits: 2 
   }).format(n)
+

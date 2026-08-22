@@ -27,6 +27,12 @@ public class CalTransaction {
     @Column(nullable = false, precision = 19, scale = 4)
     private BigDecimal amount;
 
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal buyPrice;
+
+    @Column(nullable = false, precision = 19, scale = 4)
+    private BigDecimal numberOfUnits;
+
     @Column(name = "transaction_date", nullable = false)
     private LocalDateTime transactionDate;
 
