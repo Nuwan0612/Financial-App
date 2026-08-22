@@ -49,6 +49,33 @@ export function AddCalFundDialog({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // --- NEW STATE FOR FETCHED FUNDS ---
+  const [availableFunds, setAvailableFunds] = useState<string[]>([])
+  const [fetchingFunds, setFetchingFunds] = useState(false)
+
+ useEffect(() => {
+    if (!open) return
+
+    const getFunds = async () => {
+      setFetchingFunds(true)
+      try {
+        const res = await fetch("/api/cal-funds")
+        const data = await res.json()
+        
+        // FIX: Extract only the 'fundName' string from each returned object
+        const fundNamesOnly = data.map((fund: { fundName: string, sellPrice: number, buyPrice: number }) => fund.fundName)
+        
+        setAvailableFunds(fundNamesOnly)
+      } catch {
+        console.error("Failed to fetch CAL funds")
+      } finally {
+        setFetchingFunds(false)
+      }
+    }
+
+    getFunds()
+  }, [open])
+
   const handleSubmit = async () => {
     if (!name.trim()) {
       setError("Fund name is required.")
@@ -118,12 +145,16 @@ export function AddCalFundDialog({
             </div>
           </div>
 
-          {/* Fund Name Input */}
+          {/* --- UPDATED FUND NAME INPUT WITH DATALIST --- */}
           <div className="space-y-1.5">
-            <Label htmlFor="name">Fund Name</Label>
+            <Label htmlFor="name" className="flex justify-between">
+              Fund Name 
+              {fetchingFunds && <span className="text-xs text-muted-foreground animate-pulse">Loading live funds...</span>}
+            </Label>
             <Input
               id="name"
-              placeholder="e.g. CAL Quant Equity Fund"
+              list="cal-funds-list" // Connects the input to the datalist below
+              placeholder="Select or type fund name..."
               value={name}
               onChange={(e) => {
                 setName(e.target.value)
@@ -131,6 +162,15 @@ export function AddCalFundDialog({
               }}
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
+            {/* The datalist acts as an autocomplete dropdown */}
+            <datalist id="cal-funds-list">
+              {availableFunds.map((fundName, index) => (
+                <option key={index} value={fundName} />
+              ))}
+            </datalist>
+            <p className="text-xs text-muted-foreground">
+              Select from the list or type manually if the fund is missing.
+            </p>
           </div>
 
           {/* Asset Category Dropdown */}
@@ -193,31 +233,67 @@ export function TransactionDialog({
 }) {
   const [type, setType] = useState<CalTransactionType>(defaultType)
   const [amount, setAmount] = useState("")
+  const [unitPrice, setUnitPrice] = useState("")
+  const [fetchingPrice, setFetchingPrice] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Fetch live price when dialog opens or type changes
   useEffect(() => {
-    if (open) {
-      setType(defaultType)
-      setAmount("")
-      setError(null)
+    if (!open || !fund) return
+
+    const fetchLivePrice = async () => {
+      setFetchingPrice(true)
+      try {
+        const res = await fetch("/api/cal-funds")
+        const data = await res.json()
+        
+        const liveFund = data.find((f: any) => f.fundName === fund.name)
+        
+        if (liveFund) {
+          // You BUY at the fund's Selling Price, you REDEEM at the fund's Buying Price
+          const applicablePrice = type === "INVEST" ? liveFund.sellPrice : liveFund.buyPrice
+          if (applicablePrice > 0) {
+            setUnitPrice(applicablePrice.toString())
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch live prices", err)
+      } finally {
+        setFetchingPrice(false)
+      }
     }
-  }, [open, defaultType])
+
+    fetchLivePrice()
+    setAmount("")
+    setError(null)
+  }, [open, fund, type])
+
+  // Calculate estimated units dynamically
+  const numAmount = Number(amount)
+  const numPrice = Number(unitPrice)
+  const estimatedUnits = (numAmount > 0 && numPrice > 0) ? (numAmount / numPrice) : 0
 
   const handleSubmit = async () => {
     if (!fund) return
-    const numAmount = Number(amount)
 
     if (!amount || isNaN(numAmount) || numAmount <= 0) {
       setError("Please enter a valid amount.")
       return
     }
+    if (!unitPrice || isNaN(numPrice) || numPrice <= 0) {
+      setError("Please enter a valid unit price.")
+      return
+    }
 
-    // Validate redeem — cannot redeem more than current value
     if (type === "REDEEM" && numAmount > fund.currentValue) {
-      setError(`Cannot redeem more than current value (${new Intl.NumberFormat("en-LK", {
-        style: "currency", currency: "LKR", maximumFractionDigits: 0
-      }).format(fund.currentValue)}).`)
+      setError(`Cannot redeem more than current value (${fmt(fund.currentValue)}).`)
+      return
+    }
+    
+    // Check if you have enough units to redeem
+    if (type === "REDEEM" && estimatedUnits > fund.totalUnits) {
+      setError(`Cannot redeem more units (${estimatedUnits.toFixed(4)}) than you own (${fund.totalUnits.toFixed(4)}).`)
       return
     }
 
@@ -225,24 +301,24 @@ export function TransactionDialog({
       setLoading(true)
       setError(null)
 
-      const txn = await calTransactionsApi.create({
+      const payload = {
         calFundId: fund.id,
         type,
         amount: numAmount,
-      })
+        buyPrice: numPrice,
+        numberOfUnits: estimatedUnits
+      }
 
-      // Update fund values locally
+      const txn = await calTransactionsApi.create(payload)
+
+      // Optimistic UI Update
       const updatedFund: CalFund = {
         ...fund,
-        totalInvested: type === "INVEST"
-          ? fund.totalInvested + numAmount
-          : fund.totalInvested,
-        currentValue: type === "INVEST"
-          ? fund.currentValue + numAmount
-          : fund.currentValue - numAmount,
-        totalProfit: type === "INVEST"
-          ? fund.totalProfit
-          : fund.totalProfit - numAmount,
+        totalInvested: type === "INVEST" ? fund.totalInvested + numAmount : fund.totalInvested - numAmount,
+        currentValue: type === "INVEST" ? fund.currentValue + numAmount : fund.currentValue - numAmount,
+        totalUnits: type === "INVEST" ? fund.totalUnits + estimatedUnits : fund.totalUnits - estimatedUnits,
+        // Profit remains unchanged during the actual transaction event until NAV updates
+        totalProfit: fund.totalProfit 
       }
 
       onSuccess(txn.data, updatedFund)
@@ -255,44 +331,32 @@ export function TransactionDialog({
   }
 
   if (!fund) return null
-
-  const fmt = (n: number) =>
-    new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 }).format(n)
+  const fmt = (n: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 }).format(n)
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>
-            {type === "INVEST" ? "Invest In" : "Redeem From"} — {fund.name}
-          </DialogTitle>
+          <DialogTitle>{type === "INVEST" ? "Invest In" : "Redeem From"} — {fund.name}</DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-
-          {/* Fund info */}
+          {/* Fund info banner */}
           <div className="rounded-lg bg-muted/30 px-3 py-2 space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Total Invested</span>
-              <span className="font-medium">{fmt(fund.totalInvested)}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Current Value</span>
-              <span className="font-medium">{fmt(fund.currentValue)}</span>
-            </div>
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">Available to Redeem</span>
               <span className="font-medium text-green-600">{fmt(fund.currentValue)}</span>
             </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Units Owned</span>
+              <span className="font-medium">{fund.totalUnits ? fund.totalUnits.toFixed(4) : "0.0000"} units</span>
+            </div>
           </div>
 
-          {/* Type selector */}
           <div className="space-y-1.5">
             <Label>Transaction Type</Label>
             <Select value={type} onValueChange={v => { setType(v as CalTransactionType); setError(null) }}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
+              <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="INVEST">Invest</SelectItem>
                 <SelectItem value="REDEEM">Redeem</SelectItem>
@@ -300,21 +364,38 @@ export function TransactionDialog({
             </Select>
           </div>
 
-          {/* Amount */}
-          <div className="space-y-1.5">
-            <Label htmlFor="amount">Amount (LKR)</Label>
-            <Input
-              id="amount"
-              type="number"
-              placeholder="0"
-              value={amount}
-              onChange={e => { setAmount(e.target.value); setError(null) }}
-            />
-            {type === "REDEEM" && amount && Number(amount) > 0 && Number(amount) <= fund.currentValue && (
-              <p className="text-xs text-muted-foreground">
-                Remaining after redeem: {fmt(fund.currentValue - Number(amount))}
-              </p>
-            )}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="amount">Amount (LKR)</Label>
+              <Input
+                id="amount"
+                type="number"
+                placeholder="0"
+                value={amount}
+                onChange={e => { setAmount(e.target.value); setError(null) }}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="price" className="flex justify-between">
+                Unit Price
+                {fetchingPrice && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+              </Label>
+              <Input
+                id="price"
+                type="number"
+                placeholder="0.0000"
+                value={unitPrice}
+                onChange={e => { setUnitPrice(e.target.value); setError(null) }}
+              />
+            </div>
+          </div>
+
+          {/* Dynamic Units Display */}
+          <div className="rounded border border-dashed p-3 text-center bg-muted/10">
+            <p className="text-xs text-muted-foreground mb-1">Estimated Units</p>
+            <p className="text-lg font-semibold text-primary">
+              {estimatedUnits > 0 ? estimatedUnits.toFixed(4) : "0.0000"}
+            </p>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}

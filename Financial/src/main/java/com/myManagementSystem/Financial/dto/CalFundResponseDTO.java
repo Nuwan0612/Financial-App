@@ -14,6 +14,7 @@ public record CalFundResponseDTO(
 
         // Dynamically Calculated Metrics
         BigDecimal totalInvested,
-        BigDecimal totalProfit
+        BigDecimal totalProfit,
+        BigDecimal totalUnits
 ) {
 }

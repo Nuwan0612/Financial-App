@@ -84,30 +84,38 @@ public class CalFundService {
     // Dynamic Calculator
     private CalFundResponseDTO mapToDTO(CalFund fund) {
         BigDecimal totalInvested = BigDecimal.ZERO;
+        BigDecimal totalUnits = BigDecimal.ZERO;
 
         if (fund.getTransactions() != null) {
             for (CalTransaction tx : fund.getTransactions()) {
                 if (tx.getType() == CalTransactionType.INVEST) {
                     totalInvested = totalInvested.add(tx.getAmount());
+                    totalUnits = totalUnits.add(tx.getNumberOfUnits());
                 } else if (tx.getType() == CalTransactionType.REDEEM) {
                     totalInvested = totalInvested.subtract(tx.getAmount());
+                    totalUnits = totalUnits.subtract(tx.getNumberOfUnits());
                 }
             }
         }
 
         BigDecimal currentValue = fund.getCurrentValue() != null ? fund.getCurrentValue() : BigDecimal.ZERO;
-        BigDecimal totalProfit = currentValue.subtract(totalInvested);
+        BigDecimal totalProfit = (currentValue.multiply(totalUnits)).subtract(totalInvested);
 
-        return new CalFundResponseDTO(
-                fund.getId(),
-                fund.getName(),
-                fund.getCategory(),
-                currentValue,
-                fund.getIsActive(),
-                fund.getAccount().getId(),
-                fund.getBucket().getId(),
-                totalInvested,
-                totalProfit
+        CalFundResponseDTO responseDTO = new CalFundResponseDTO(
+            fund.getId(),
+            fund.getName(),
+            fund.getCategory(),
+            currentValue,
+            fund.getIsActive(),
+            fund.getAccount().getId(),
+            fund.getBucket().getId(),
+            totalInvested,
+            totalProfit,
+            totalUnits
         );
+
+        log.info("Returning responseDTO: {}", responseDTO);
+
+        return responseDTO;
     }
 }

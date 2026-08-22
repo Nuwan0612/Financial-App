@@ -11,6 +11,7 @@ export type CalFund = {
   bucketId: number
   totalInvested: number
   totalProfit: number
+  totalUnits: number
 }
 
 export type CalTransaction = {
@@ -20,6 +21,8 @@ export type CalTransaction = {
   type: CalTransactionType
   amount: number
   transactionDate: string
+  buyPrice: number
+  numberOfUnits: number
 }
 
 

@@ -41,18 +41,20 @@ public class CalTransactionService {
         Bucket bucket = fund.getBucket();
         Account account = fund.getAccount();
 
-        if (request.type() == CalTransactionType.INVEST) {
-            // Money goes into the fund, invested capital goes up
-            fund.setCurrentValue(fund.getCurrentValue().add(request.amount()));
+        BigDecimal units;
+        if (request.numberOfUnits().compareTo(BigDecimal.ZERO) > 0) {
+            units = request.numberOfUnits();
+        } else {
+            units = request.amount().divide(request.buyPrice());
+        }
 
-        } else if (request.type() == CalTransactionType.REDEEM) {
+        fund.setCurrentValue(request.buyPrice());
+
+         if (request.type() == CalTransactionType.REDEEM) {
             // 1. Security Check: Prevent over-redemption based on actual Fund value
             if (request.amount().compareTo(fund.getCurrentValue()) > 0) {
                 throw new IllegalArgumentException("Insufficient funds: Cannot redeem more than the current fund value.");
             }
-
-            // 2. Fund Value goes DOWN
-            fund.setCurrentValue(fund.getCurrentValue().subtract(request.amount()));
 
             // 3. Total Portfolio Value (Account) goes DOWN
             account.setCurrentBalance(account.getCurrentBalance().subtract(request.amount()));
@@ -73,13 +75,14 @@ public class CalTransactionService {
 
         // Save all three updated entities
         bucketRepository.save(bucket);
-        accountRepository.save(account); // <-- SAVE THE ACCOUNT
+        accountRepository.save(account);
         fundRepository.save(fund);
 
         CalTransaction transaction = CalTransaction.builder()
                 .type(request.type())
                 .amount(request.amount())
                 .buyPrice(request.buyPrice())
+                .numberOfUnits(units)
                 .transactionDate(LocalDateTime.now())
                 .calFund(fund)
                 .build();

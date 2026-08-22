@@ -20,6 +20,7 @@ export interface CalFundResponseDTO {
   bucketId: number
   totalInvested: number
   totalProfit: number
+  totalUnits: number
 }
 
 export const calFundsApi = {
@@ -34,6 +35,8 @@ export type CalTransactionRequestDTO = {
   calFundId: number
   type: CalTransactionType
   amount: number
+  buyPrice: number
+  numberOfUnits: number
 }
 
 export type CalTransactionResponseDTO = {
@@ -43,6 +46,8 @@ export type CalTransactionResponseDTO = {
   type: CalTransactionType
   amount: number
   transactionDate: string
+  buyPrice: number
+  numberOfUnits: number
 }
 
 export const calTransactionsApi = {
