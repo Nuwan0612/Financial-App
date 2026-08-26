@@ -221,12 +221,14 @@ import { CalFund, CalTransactionType } from "./types"
 export function TransactionDialog({
   open,
   fund,
+  availableRedeemable,
   defaultType,
   onClose,
   onSuccess,
 }: {
   open: boolean
   fund: CalFund | null
+  availableRedeemable: number
   defaultType: CalTransactionType
   onClose: () => void
   onSuccess: (txn: CalTransactionResponseDTO, updatedFund: CalFund) => void
@@ -345,7 +347,7 @@ export function TransactionDialog({
           <div className="rounded-lg bg-muted/30 px-3 py-2 space-y-1">
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">Available to Redeem</span>
-              <span className="font-medium text-green-600">{fmt(fund.currentValue)}</span>
+              <span className="font-medium text-green-600">{fmt(availableRedeemable)}</span>
             </div>
             <div className="flex justify-between text-xs">
               <span className="text-muted-foreground">Units Owned</span>

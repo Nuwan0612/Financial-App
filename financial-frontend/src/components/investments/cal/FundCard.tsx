@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { CalFund, CalTransactionType } from "./types"
 import { fmt } from "./helpers"
 import { TransactionDialog, UpdateValueDialog } from "./Dialogs" 
-import { CalTransactionResponseDTO } from "@/lib/api/cal"
+import { calFundsApi, CalTransactionResponseDTO } from "@/lib/api/cal"
 
 // // Format helper
 // const fmt = (n: number) => new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 }).format(n)
@@ -54,6 +54,14 @@ export function FundCard({
         
         if (liveFund) {
           setLiveUnitPrice(liveFund.sellPrice) 
+          fund.currentValue = liveFund.sellPrice
+
+          try {
+            await calFundsApi.updateValue(fund.id, liveFund.sellPrice)
+          } catch (e) {
+            console.error("Failed to update fund with live NAV:", e)
+          }
+
         } else {
           console.warn(`Could not find a live match for: "${fund.name}"`)
         }
@@ -163,6 +171,7 @@ export function FundCard({
       <TransactionDialog
         open={dialogOpen}
         fund={fund}
+        availableRedeemable={fund.totalProfit + fund.totalInvested}
         defaultType={dialogType}
         onClose={() => setDialogOpen(false)}
         onSuccess={(txn, updated) => onFundUpdated(updated)}
