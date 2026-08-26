@@ -1,7 +1,7 @@
 "use client"
 
-import { useState } from "react"
-import { ArrowLeft, TrendingUp, TrendingDown, ArrowLeftRight } from "lucide-react"
+import { useEffect, useState } from "react"
+import { ArrowLeft, TrendingUp, TrendingDown, ArrowLeftRight, Zap } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -15,20 +15,31 @@ import { SpotCoin } from "./types"
 import {
   spotCoins, spotHistory, futureHistory,
   FUTURE_ACCOUNT_BALANCE_USD, FUTURE_TOTAL_PROFIT_USD,
-  PIE_COLORS, EXCHANGE_RATE
+  PIE_COLORS
 } from "./constants"
 import { fmtUSD, fmtLKR, fmtBoth } from "./helpers"
 
 import { CoinTransactionPanel } from "./CoinTransactionPanel"
 import { FutureCalendar } from "./FutureCalendar"
 import { FuturesLockedOverlay } from "./FuturesLockedOverlay" 
-import { TransferDialog } from "./FutureDialog"             
-
-const SPOT_ACCOUNT_BALANCE_USD = 2500;
+import { SpotTradeDialog, TransferDialog } from "./FutureDialog"             
+import { bucketsApi, Bukets, snapshotsApi } from "@/lib/api/accounts"
+import { subCategoryApi } from "@/lib/api/allocations"
+import { getUsdToLkrRate } from "@/lib/utils"
 
 export default function CryptoDetail({ id, name }: { id: number; name: string }) {
   const router = useRouter()
   const [selectedCoin, setSelectedCoin] = useState<SpotCoin | null>(null)
+
+  const [bucket, setBucket] = useState<Bukets[]>([])
+  const [snapshot, setSnapshot] = useState<any[]>([])
+  const [exchangeRate, setExchangeRate] = useState<number>(0)
+
+  const [spotAccount, setSpotAccount] = useState<any>(null)
+  const [futureAccount, setFutureAccount] = useState<any>(null)
+
+  const [totalInvestedUSD, setTotalInvestedUSD] = useState<number>(0)
+  const [showTradeDialog, setShowTradeDialog] = useState(false)
 
   // ── Spot calculations ──
   const spotInvestedUSD = spotCoins.reduce((s, c) => s + c.quantity * c.avgPrice, 0)
@@ -39,15 +50,62 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
   const futureInvestedUSD = FUTURE_ACCOUNT_BALANCE_USD
   const futureProfitUSD = FUTURE_TOTAL_PROFIT_USD
 
-  const totalInvestedUSD = spotInvestedUSD + futureInvestedUSD
-
   const pieData = [
     { name: "Spot", value: Math.round((spotInvestedUSD / totalInvestedUSD) * 100) },
     { name: "Futures", value: Math.round((futureInvestedUSD / totalInvestedUSD) * 100) },
   ]
 
-  const [showSpotToFutureDialog, setShowSpotToFutureDialog] = useState(false)
+  const [showTransferDialog, setShowTransferDialog] = useState(false)
+  const [transferDirection, setTransferDirection] = useState<"spot-to-future" | "future-to-spot">("spot-to-future")
+
   const [hasFutureAccount, setHasFutureAccount] = useState(false) 
+
+  
+
+  const handleCreateFutureAccount = async () => {
+    const payload = {
+      name: "Future",
+      percentage: 0,
+      mainCategoryId:-1,
+      accountId: Number(id)
+    }
+
+    const res = await subCategoryApi.create(payload)
+    if(res.status === 201){
+      setHasFutureAccount(true)
+    }
+  }
+
+  useEffect(() => {
+      Promise.all([
+        bucketsApi.getBucketsByAccount(id),
+        snapshotsApi.getSnapshotsByAccount(Number(id)),
+        getUsdToLkrRate()
+      ])
+        .then(([bucketsRes, snapshotRes, exchangeRate]) => {
+          // 1. Handle Bucket Data
+          if (bucketsRes.data && bucketsRes.data.length > 0) {
+            setBucket(bucketsRes.data)
+            setTotalInvestedUSD(bucketsRes.data.reduce((total, bucket) => total + bucket.cumulativeAmount, 0))
+
+            const futureBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "future")
+            if(futureBucket){
+              setHasFutureAccount(true)
+              setFutureAccount(futureBucket)
+            }
+
+            const spotBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "spot")
+            if(spotBucket){
+              setSpotAccount(spotBucket)
+            }
+          }
+
+          // 2. Handle Snapshot Data
+          setSnapshot(snapshotRes.data)
+          setExchangeRate(exchangeRate)
+        })
+        .catch((error) => console.error("Failed to fetch account data", error))
+    }, [id])
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1400px" }}>
@@ -68,7 +126,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
           <CardContent className="pt-4 pb-4">
             <p className="text-xs text-muted-foreground">Total Invested</p>
             <p className="text-base font-semibold mt-1">{fmtUSD(totalInvestedUSD)}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{fmtLKR(totalInvestedUSD * EXCHANGE_RATE)}</p>
+            <p className="text-xs text-muted-foreground mt-0.5">{fmtLKR(totalInvestedUSD * exchangeRate)}</p>
           </CardContent>
         </Card>
 
@@ -79,7 +137,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
               {spotProfitUSD >= 0 ? "+" : ""}{fmtUSD(spotProfitUSD)}
             </p>
             <p className={`text-xs mt-0.5 ${spotProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {fmtLKR(spotProfitUSD * EXCHANGE_RATE)}
+              {fmtLKR(spotProfitUSD * exchangeRate)}
             </p>
           </CardContent>
         </Card>
@@ -91,10 +149,10 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
               {!hasFutureAccount ? "$0.00" : `${futureProfitUSD >= 0 ? "+" : ""}${fmtUSD(futureProfitUSD)}`}
             </p>
             <p className={`text-xs mt-0.5 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-              {!hasFutureAccount ? "LKR 0" : fmtLKR(futureProfitUSD * EXCHANGE_RATE)}
+              {!hasFutureAccount ? "LKR 0" : fmtLKR(futureProfitUSD * exchangeRate)}
             </p>
           </CardContent>
-          {!hasFutureAccount && <FuturesLockedOverlay compact onUnlock={() => setHasFutureAccount(true)} />}
+          {!hasFutureAccount && <FuturesLockedOverlay compact onUnlock={() => handleCreateFutureAccount()} />}
         </Card>
 
         <Card>
@@ -106,7 +164,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                   <Pie data={pieData} cx="50%" cy="50%" innerRadius={22} outerRadius={36} dataKey="value">
                     {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} />)}
                   </Pie>
-                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${Number(v) || 0}%`} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-1">
@@ -121,7 +179,23 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
           </CardContent>
         </Card>
       </div>
-
+      
+      <Card>
+        <CardHeader className="pb-2 pt-4 px-4">
+          <CardTitle className="text-xs font-medium text-muted-foreground">Binance Account Value</CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={spotHistory}>
+              <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+              <Tooltip formatter={(v) => fmtUSD(Number(v) || 0)} />
+              <Line type="monotone" dataKey="value" stroke="#f1ef63ff" strokeWidth={2} dot={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+      
       {/* Two charts side by side */}
       <div className="grid grid-cols-2 gap-4">
         <Card>
@@ -133,7 +207,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
               <LineChart data={spotHistory}>
                 <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                <Tooltip formatter={(v: number) => fmtUSD(v)} />
+                <Tooltip formatter={(v) => fmtUSD(Number(v) || 0)} />
                 <Line type="monotone" dataKey="value" stroke="#6366f1" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
@@ -143,7 +217,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
         <Card className="relative overflow-hidden">
           <div className={!hasFutureAccount ? "blur-[4px] opacity-40 pointer-events-none" : ""}>
             <CardHeader className="pb-2 pt-4 px-4">
-              <CardTitle className="text-xs font-medium text-muted-foreground">Futures Monthly P&L</CardTitle>
+              <CardTitle className="text-xs font-medium text-muted-foreground">Futures Portfolio Value</CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-4">
               {hasFutureAccount ? (
@@ -151,7 +225,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                   <LineChart data={futureHistory}>
                     <XAxis dataKey="date" tick={{ fontSize: 10 }} />
                     <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
-                    <Tooltip formatter={(v: number) => fmtUSD(v)} />
+                    <Tooltip formatter={(v) => fmtUSD(Number(v) || 0)} />
                     <Line type="monotone" dataKey="pnl" stroke="#10b981" strokeWidth={2} dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
@@ -160,7 +234,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
               )}
             </CardContent>
           </div>
-          {!hasFutureAccount && <FuturesLockedOverlay onUnlock={() => setHasFutureAccount(true)} />}
+          {!hasFutureAccount && <FuturesLockedOverlay onUnlock={() => handleCreateFutureAccount()} />}
         </Card>
       </div>
 
@@ -173,19 +247,19 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
 
         {/* Spot tab */}
         <TabsContent value="spot" className="mt-4 space-y-3">
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <Card>
               <CardContent className="pt-3 pb-3">
                 <p className="text-xs text-muted-foreground">Spot Balance</p>
-                <p className="text-base font-semibold mt-0.5">{fmtUSD(SPOT_ACCOUNT_BALANCE_USD)}</p>
-                <p className="text-xs text-muted-foreground">{fmtLKR(SPOT_ACCOUNT_BALANCE_USD * EXCHANGE_RATE)}</p>
+                <p className="text-base font-semibold mt-0.5">{fmtUSD(spotAccount?.currentAmount ?? 0)}</p>
+                <p className="text-xs text-muted-foreground">{fmtLKR((spotAccount?.currentAmount ?? 0) * exchangeRate)}</p>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="pt-3 pb-3">
                 <p className="text-xs text-muted-foreground">Total Spot Value</p>
                 <p className="text-base font-semibold mt-0.5">{fmtUSD(spotCurrentUSD)}</p>
-                <p className="text-xs text-muted-foreground">{fmtLKR(spotCurrentUSD * EXCHANGE_RATE)}</p>
+                <p className="text-xs text-muted-foreground">{fmtLKR(spotCurrentUSD * exchangeRate)}</p>
               </CardContent>
             </Card>
             <Card>
@@ -195,9 +269,25 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                   <p className="text-xs text-muted-foreground mt-0.5">Move funds between accounts</p>
                 </div>
                 <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
-                  onClick={() => setShowSpotToFutureDialog(true)}>
+                  onClick={() => {
+                    setTransferDirection("spot-to-future")
+                    setShowTransferDialog(true)
+                  }}>
                   <ArrowLeftRight className="h-3.5 w-3.5" />
                   Transfer
+                </Button>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="pt-3 pb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs text-muted-foreground">Execute Trade</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Buy or sell spot coins</p>
+                </div>
+                <Button size="sm" className="gap-1.5 shrink-0"
+                  onClick={() => setShowTradeDialog(true)}>
+                  <Zap className="h-3.5 w-3.5" />
+                  Trade
                 </Button>
               </CardContent>
             </Card>
@@ -278,7 +368,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                 </Card>
                 <div className="h-64 rounded-lg bg-muted/20 border border-border" />
               </div>
-              <FuturesLockedOverlay onUnlock={() => setHasFutureAccount(true)} />
+              <FuturesLockedOverlay onUnlock={() => handleCreateFutureAccount()} />
             </div>
           ) : (
             <>
@@ -286,14 +376,14 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                 <Card>
                   <CardContent className="pt-3 pb-3">
                     <p className="text-xs text-muted-foreground">Account Balance</p>
-                    <p className="text-base font-semibold mt-0.5">{fmtBoth(FUTURE_ACCOUNT_BALANCE_USD)}</p>
+                    <p className="text-base font-semibold mt-0.5">{fmtBoth(futureAccount?.currentAmount ?? 0, exchangeRate)}</p>
                   </CardContent>
                 </Card>
                 <Card>
                   <CardContent className="pt-3 pb-3">
                     <p className="text-xs text-muted-foreground">Total Futures P&L</p>
                     <p className={`text-base font-semibold mt-0.5 ${futureProfitUSD >= 0 ? "text-green-600" : "text-destructive"}`}>
-                      {futureProfitUSD >= 0 ? "+" : ""}{fmtBoth(futureProfitUSD)}
+                      {futureProfitUSD >= 0 ? "+" : ""}{fmtBoth(futureProfitUSD, exchangeRate)}
                     </p>
                   </CardContent>
                 </Card>
@@ -303,7 +393,11 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                       <p className="text-xs text-muted-foreground">Transfer to Spot</p>
                       <p className="text-xs text-muted-foreground mt-0.5">Move funds between accounts</p>
                     </div>
-                    <Button size="sm" variant="outline" className="gap-1.5 shrink-0" onClick={() => setShowSpotToFutureDialog(true)}>
+                    <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
+                      onClick={() => {
+                        setTransferDirection("future-to-spot")
+                        setShowTransferDialog(true)
+                      }}>
                       <ArrowLeftRight className="h-3.5 w-3.5" />
                       Transfer
                     </Button>
@@ -316,10 +410,24 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
         </TabsContent>
       </Tabs>
 
-      <TransferDialog 
-        open={showSpotToFutureDialog} 
-        onClose={() => setShowSpotToFutureDialog(false)} 
-        spotBalance={SPOT_ACCOUNT_BALANCE_USD} 
+      <TransferDialog
+        open={showTransferDialog}
+        onClose={() => setShowTransferDialog(false)}
+        spotBalance={spotAccount?.currentAmount ?? 0}
+        futureBalance={futureAccount?.currentAmount ?? 0}
+        direction={transferDirection}
+      />
+
+      <SpotTradeDialog
+        open={showTradeDialog}
+        accountId={id}
+        bucketId={spotAccount?.id}
+        spotBalance={spotAccount?.currentAmount ?? 0}
+        onClose={() => setShowTradeDialog(false)}
+        onSuccess={() => {
+          setShowTradeDialog(false)
+          // re-fetch coins list to update balances
+        }}
       />
     </div>
   )

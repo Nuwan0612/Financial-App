@@ -10,6 +10,7 @@ public record SpotTransactionRequestDTO(
         @NotNull Long bucketId,
         @NotBlank String coin,
         @NotBlank String type, // BUY or SELL
-        @NotNull @Positive BigDecimal amount,
-        @NotNull @Positive BigDecimal executionPrice
+        @NotNull @Positive BigDecimal quantity,
+        @NotNull @Positive BigDecimal executionPrice,
+        @NotNull @Positive BigDecimal amount
 ) {}

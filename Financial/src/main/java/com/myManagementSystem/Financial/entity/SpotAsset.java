@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
+
 @Entity
 @Table(name = "spot_assets")
 @NoArgsConstructor
@@ -22,8 +23,8 @@ public class SpotAsset {
     @Column(nullable = false)
     private String coin; // e.g., "BTC", "ETH"
 
-    @Column(name = "total_amount", precision = 19, scale = 8)
-    private BigDecimal totalAmount;
+    @Column(name = "total_quantity", precision = 19, scale = 8)
+    private BigDecimal totalQuantity; // Total Quantity
 
     @Column(name = "current_price", precision = 19, scale = 4)
     private BigDecimal currentPrice;
@@ -41,6 +42,7 @@ public class SpotAsset {
     @EqualsAndHashCode.Exclude
     private Bucket bucket;
 
+    @Builder.Default
     @OneToMany(mappedBy = "spotAsset", cascade = CascadeType.ALL, orphanRemoval = true)
     @ToString.Exclude
     @EqualsAndHashCode.Exclude

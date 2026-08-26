@@ -39,7 +39,15 @@ public class SubCategoryService {
   public SubCategoryResponseDTO createSubCategory(SubCategoryRequestDTO subCategoryRequestDTO) {
     log.info("Attempting to create new SubCategory {}", subCategoryRequestDTO.name());
 
-    MainCategory mainCategory = mainCategoryRepository.findById(subCategoryRequestDTO.mainCategoryId())
+     Long mainCategoryId;
+
+    if (Long.valueOf(-1L).equals(subCategoryRequestDTO.mainCategoryId())){
+      mainCategoryId = this.getMainAccountId(subCategoryRequestDTO.accountId());
+    } else {
+      mainCategoryId = subCategoryRequestDTO.mainCategoryId();
+    }
+
+    MainCategory mainCategory = mainCategoryRepository.findById(mainCategoryId)
         .orElseThrow(() -> new ResourceNotFoundException("Main Category not found with ID: " + subCategoryRequestDTO.mainCategoryId()));
 
     Account account = accountRepository.findById(subCategoryRequestDTO.accountId())
@@ -89,6 +97,15 @@ public class SubCategoryService {
         .orElseThrow(() -> new ResourceNotFoundException("SubCategory not found with ID: " + id));
 
     return mapToDTO(subCategory);
+  }
+
+  // GET ONE
+  private Long getMainAccountId(Long id) {
+    log.info("Fetching SubCategory with Account ID {}", id);
+    SubCategory subCategory = subCategoryRepository.findByAccount_Id(id)
+            .orElseThrow(() -> new ResourceNotFoundException("SubCategory not found with Account ID: " + id));
+
+    return subCategory.getMainCategory().getId();
   }
 
   // UPDATE

@@ -54,6 +54,8 @@ public class BucketService {
     log.info("Successfully deleted Bucket with ID {}", id);
   }
 
+
+
   public List<BucketResponseDTO> getBuketsByAccount(Long accountId) {
     log.info("Attempting to get Buckets for Account {}", accountId);
 

@@ -21,10 +21,14 @@ public class SpotTransaction {
     private String type; // BUY or SELL
 
     @Column(nullable = false, precision = 19, scale = 8)
-    private BigDecimal amount; // Quantity of coin
+    private BigDecimal quantity; // Quantity of coin
 
     @Column(name = "execution_price", nullable = false, precision = 19, scale = 4)
     private BigDecimal executionPrice; // Price in USDT
+
+    @Column(name = "invest_amount", nullable = false, precision = 19, scale = 4)
+    private BigDecimal investAmount;
+
 
     @Column(name = "transaction_date", nullable = false)
     private LocalDateTime transactionDate;

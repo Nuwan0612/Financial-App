@@ -10,7 +10,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/binance")
+@RequestMapping("/api/v1/binance")
 @RequiredArgsConstructor
 public class BinanceController {
 
@@ -19,9 +19,9 @@ public class BinanceController {
 
     // --- SPOT ENDPOINTS ---
     @PostMapping("/spot/trade")
-    public ResponseEntity<Void> executeSpotTrade(@Valid @RequestBody SpotTransactionRequestDTO request) {
-        spotTradingService.executeSpotTrade(request);
-        return ResponseEntity.ok().build();
+    public ResponseEntity<SpotTransactionResponseDTO> executeSpotTrade(@Valid @RequestBody SpotTransactionRequestDTO request) {
+        SpotTransactionResponseDTO response = spotTradingService.executeSpotTrade(request);
+        return ResponseEntity.ok(response);
     }
 
     // --- FUTURES ENDPOINTS ---

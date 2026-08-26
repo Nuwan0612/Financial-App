@@ -11,7 +11,7 @@ import {
   Tooltip, PieChart, Pie, Cell, AreaChart, Area, CartesianGrid
 } from "recharts"
 
-import { funds, growthHistory, PIE_COLORS } from "./constants"
+import { PIE_COLORS } from "./constants"
 import { fmt } from "./helpers"
 import { AddCalFundDialog } from "./Dialogs" // Adjust import path if needed
 import { bucketsApi, snapshotsApi } from "@/lib/api/accounts"
@@ -166,7 +166,7 @@ export default function UnitTrustDetail({ id, name }: { id: number; name: string
                       <Cell key={i} fill={PIE_COLORS[i]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number) => `${v}%`} />
+                  <Tooltip formatter={(v) => `${Number(v) || 0}%`} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="space-y-1">

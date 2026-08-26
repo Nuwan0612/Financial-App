@@ -4,10 +4,7 @@ import com.myManagementSystem.Financial.dto.BucketResponseDTO;
 import com.myManagementSystem.Financial.service.BucketService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -28,4 +25,5 @@ public class BucketController {
     List<BucketResponseDTO> buckets = bucketService.getAllActiveBuckets();
     return ResponseEntity.ok(buckets);
   }
+
 }

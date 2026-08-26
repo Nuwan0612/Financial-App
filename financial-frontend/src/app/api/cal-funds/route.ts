@@ -20,7 +20,9 @@ export async function GET() {
     const $ = cheerio.load(html)
 
     const headers: string[] = []
-    $("table thead th").each((_, el) => headers.push($(el).text().trim()))
+    $("table thead th").each((_, el) => {
+      headers.push($(el).text().trim())
+    })
 
     const allFunds: Record<string, string>[] = []
     $("table tbody tr").each((_, row) => {

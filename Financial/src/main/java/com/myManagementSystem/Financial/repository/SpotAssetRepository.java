@@ -9,6 +9,6 @@ import java.util.Optional;
 
 @Repository
 public interface SpotAssetRepository extends JpaRepository<SpotAsset, Long> {
-    Optional<SpotAsset> findByAccountIdAndCoin(Long accountId, String coin);
+    Optional<SpotAsset> findByCoin(String coin);
     List<SpotAsset> findByAccountId(Long accountId);
 }

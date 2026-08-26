@@ -13,7 +13,7 @@ public record SubCategoryRequestDTO(
     String name,
 
     @NotNull(message = "Percentage is required")
-    @DecimalMin(value = "0.01", message = "Percentage must be greater than zero")
+    @DecimalMin(value = "0.00", message = "Percentage must be greater than zero")
     @DecimalMax(value = "100.00", message = "Percentage cannot be greater than 100")
     BigDecimal percentage,
 

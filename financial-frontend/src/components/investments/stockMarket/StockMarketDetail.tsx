@@ -290,7 +290,7 @@ id, name,
                       ))}
                     </Pie>
                     {/* Added the name to the tooltip payload so it shows "Technology: 45%" */}
-                    <Tooltip formatter={(value: number, name: string) => [`${value}%`, name]} />
+                    <Tooltip formatter={(value, name) => [`${Number(value) || 0}%`, name]} />
                   </PieChart>
                 </ResponsiveContainer>
               </CardContent>
@@ -305,7 +305,7 @@ id, name,
                   <BarChart data={sectorPnL} layout="vertical">
                     <XAxis type="number" tick={{ fontSize: 10 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={70} />
-                    <Tooltip formatter={(v: number) => fmt(Math.abs(v))} />
+                    <Tooltip formatter={(v) => fmt(Math.abs(Number(v) || 0))} />
                     <Bar dataKey="pnl" radius={[0, 4, 4, 0]}>
                       {sectorPnL.map((entry, i) => (
                         <Cell key={i} fill={entry.pnl >= 0 ? "#10b981" : "#ef4444"} />

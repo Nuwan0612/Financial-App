@@ -445,7 +445,7 @@ export default function DashboardPage() {
                 <Pie data={byAccount} cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={2}>
                   {byAccount.map((a, i) => <Cell key={i} fill={a.color} />)}
                 </Pie>
-                <Tooltip formatter={(v: number) => fmtLKR(v)} />
+                <Tooltip formatter={(v) => fmtLKR(Number(v) || 0)} />
                 <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
             </ResponsiveContainer>
@@ -464,7 +464,7 @@ export default function DashboardPage() {
                   dataKey="value" paddingAngle={2}>
                   {byAssetClass.map((a, i) => <Cell key={i} fill={a.color} />)}
                 </Pie>
-                <Tooltip formatter={(v: number) => `${v}%`} />
+                <Tooltip formatter={(v) => fmtLKR(Number(v) || 0)} />
                 <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
             </ResponsiveContainer>
