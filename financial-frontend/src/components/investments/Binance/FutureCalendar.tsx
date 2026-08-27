@@ -6,37 +6,40 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { FutureJournal } from "./types"
-import { futureJournals, MONTHS, CURRENT_YEAR } from "./constants"
-import { fmtUSD, getDaysInMonth, getFirstDayOfMonth } from "./helpers"
-import { FutureJournalDialog } from "./FutureDialog"
+import { FutureJournalDialog, JournalDetailDialog } from "./FutureDialog"
 
-export function FutureCalendar() {
+
+export function FutureCalendar({ accountId, bucketId, futureJournals }: { accountId: number; bucketId: number; futureJournals: FutureJournal[] }) {
+
+  const CURRENT_YEAR = new Date().getFullYear();
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  
+  // Dummy helper functions for calendar (replace with your actual imports)
+  const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+  const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
+
   const [selectedYear, setSelectedYear] = useState(CURRENT_YEAR)
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth())
   const [selectedDate, setSelectedDate] = useState<string | null>(null)
   const [journalDialogDate, setJournalDialogDate] = useState<string | null>(null)
-  const [journals, setJournals] = useState<FutureJournal[]>(futureJournals)
+  const [journals, setJournals] = useState<FutureJournal[]>(futureJournals)  
 
   const daysInMonth = getDaysInMonth(selectedYear, selectedMonth)
   const firstDay = getFirstDayOfMonth(selectedYear, selectedMonth)
   const days = Array.from({ length: daysInMonth }, (_, i) => i + 1)
   const blanks = Array.from({ length: firstDay }, (_, i) => i)
 
+  const [detailJournal, setDetailJournal] = useState<FutureJournal | null>(null)
+
   const getDateStr = (day: number) =>
     `${selectedYear}-${String(selectedMonth + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`
 
-  const journalsForDate = (dateStr: string) => journals.filter(j => j.date === dateStr)
-
-  const monthProfit = journals
-    .filter(j => {
-      const d = new Date(j.date)
-      return d.getFullYear() === selectedYear && d.getMonth() === selectedMonth
-    })
-    .reduce((s, j) => s + j.profit, 0)
-
-  const yearProfit = journals
-    .filter(j => new Date(j.date).getFullYear() === selectedYear)
-    .reduce((s, j) => s + j.profit, 0)
+  // Match based on closeDate string representation
+  const journalsForDate = (dateStr: string) => journals.filter(j => {
+    const d = new Date(j.closeDate);
+    const jDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return jDateStr === dateStr;
+  })
 
   const selectedDateJournals = selectedDate ? journalsForDate(selectedDate) : []
 
@@ -46,43 +49,43 @@ export function FutureCalendar() {
         {/* Left — year + month selectors */}
         <div className="space-y-3">
           <Card>
-  <CardHeader className="pb-2 pt-3 px-3">
-    <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Year</CardTitle>
-  </CardHeader>
-  <CardContent className="px-3 pb-3 space-y-1">
-    {[CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1].map(y => {
-      // Calculate profit for this specific year
-      const yProfit = journals
-        .filter(j => new Date(j.date).getFullYear() === y)
-        .reduce((s, j) => s + j.profit, 0)
+            <CardHeader className="pb-2 pt-3 px-3">
+              <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Year</CardTitle>
+            </CardHeader>
+            <CardContent className="px-3 pb-3 space-y-1">
+              {[CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1, CURRENT_YEAR + 2, CURRENT_YEAR + 3].map(y => {
+                // Fixed to realizedPnl and closeDate
+                const yProfit = journals
+                  .filter(j => new Date(j.closeDate).getFullYear() === y)
+                  .reduce((s, j) => s + j.realizedPnl, 0)
 
-      return (
-        <button 
-          key={y} 
-          onClick={() => setSelectedYear(y)}
-          className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors
-            ${selectedYear === y ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted/50"}`}
-        >
-          <span>{y}</span>
-          
-          {yProfit !== 0 && (
-            <span 
-              className={`text-xs ${
-                selectedYear === y 
-                  ? "text-primary-foreground/80" 
-                  : yProfit > 0 
-                    ? "text-green-600" 
-                    : "text-destructive"
-              }`}
-            >
-              {yProfit > 0 ? "+" : ""}{yProfit.toFixed(0)}
-            </span>
-          )}
-        </button>
-      )
-    })}
-  </CardContent>
-</Card>
+                return (
+                  <button 
+                    key={y} 
+                    onClick={() => setSelectedYear(y)}
+                    className={`w-full flex items-center justify-between px-2 py-1.5 rounded-md text-sm transition-colors
+                      ${selectedYear === y ? "bg-primary text-primary-foreground font-medium" : "hover:bg-muted/50"}`}
+                  >
+                    <span>{y}</span>
+                    
+                    {yProfit !== 0 && (
+                      <span 
+                        className={`text-xs ${
+                          selectedYear === y 
+                            ? "text-primary-foreground/80" 
+                            : yProfit > 0 
+                              ? "text-green-600" 
+                              : "text-destructive"
+                        }`}
+                      >
+                        {yProfit > 0 ? "+" : ""}{yProfit.toFixed(0)}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </CardContent>
+          </Card>
           <Card>
             <CardHeader className="pb-2 pt-3 px-3">
               <CardTitle className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Month</CardTitle>
@@ -90,9 +93,10 @@ export function FutureCalendar() {
             <CardContent className="px-3 pb-3">
               <div className="grid grid-cols-3 gap-1">
                 {MONTHS.map((m, idx) => {
+                  // Fixed to realizedPnl and closeDate
                   const mProfit = journals
-                    .filter(j => { const d = new Date(j.date); return d.getFullYear() === selectedYear && d.getMonth() === idx })
-                    .reduce((s, j) => s + j.profit, 0)
+                    .filter(j => { const d = new Date(j.closeDate); return d.getFullYear() === selectedYear && d.getMonth() === idx })
+                    .reduce((s, j) => s + j.realizedPnl, 0)
                   return (
                     <button key={m} onClick={() => setSelectedMonth(idx)}
                       className={`flex flex-col items-center py-1.5 rounded-md text-xs transition-colors
@@ -139,10 +143,14 @@ export function FutureCalendar() {
               {days.map(day => {
                 const dateStr = getDateStr(day)
                 const dayJournals = journalsForDate(dateStr)
-                const dayProfit = dayJournals.reduce((s, j) => s + j.profit, 0)
+                // Fixed to realizedPnl
+                const dayProfit = dayJournals.reduce((s, j) => s + j.realizedPnl, 0)
                 const hasJournals = dayJournals.length > 0
                 const isSelected = selectedDate === dateStr
-                const isToday = new Date().toISOString().split("T")[0] === dateStr
+                
+                // Keep local time string check to prevent timezone mismatch on "Today"
+                const today = new Date();
+                const isToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}` === dateStr;
 
                 return (
                   <button
@@ -193,32 +201,44 @@ export function FutureCalendar() {
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="bg-muted/50">
-                    <th className="text-left px-4 py-2 font-medium text-muted-foreground border border-border">Pair</th>
-                    <th className="text-center px-4 py-2 font-medium text-muted-foreground border border-border w-20">Direction</th>
-                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-24">Entry</th>
-                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-24">Exit</th>
-                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-20">Size</th>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground border border-border w-32">Pair</th>
+                    <th className="text-center px-4 py-2 font-medium text-muted-foreground border border-border w-32">Direction</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-32">Leverage</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-32">Margin</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-32">Position Size</th>
                     <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-28">P&L</th>
+                    <th className="text-center px-4 py-2 font-medium text-muted-foreground border border-border w-32">SS</th>
                     <th className="text-left px-4 py-2 font-medium text-muted-foreground border border-border">Notes</th>
                   </tr>
                 </thead>
                 <tbody>
                   {selectedDateJournals.map(j => (
-                    <tr key={j.id} className="hover:bg-muted/20">
-                      <td className="px-4 py-2 border border-border font-semibold">{j.pair}</td>
+                    <tr key={j.id}
+                      className="hover:bg-muted/20 cursor-pointer"
+                      onClick={() => setDetailJournal(j)} 
+                    >
+                      <td className="px-4 py-2 border border-border font-semibold">{j.coinPair}</td>
                       <td className="px-4 py-2 border border-border text-center">
-                        <Badge className={j.direction === "LONG"
+                        <Badge className={j.positionType === "LONG"
                           ? "bg-green-500/10 text-green-600 border-green-500/20 text-xs"
                           : "bg-red-500/10 text-red-600 border-red-500/20 text-xs"}>
-                          {j.direction}
+                          {j.positionType}
                         </Badge>
                       </td>
-                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">${j.entryPrice.toLocaleString()}</td>
-                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">${j.exitPrice.toLocaleString()}</td>
-                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">{j.size}</td>
+                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">{j.leverage}x</td>
+                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">${j.margin}</td>
+                      <td className="px-4 py-2 border border-border text-right tabular-nums text-xs">${j.margin * j.leverage}</td>
+                      {/* Fixed to realizedPnl */}
                       <td className={`px-4 py-2 border border-border text-right tabular-nums font-medium
-                        ${j.profit >= 0 ? "text-green-600" : "text-destructive"}`}>
-                        {j.profit >= 0 ? "+" : ""}{fmtUSD(j.profit)}
+                        ${j.realizedPnl >= 0 ? "text-green-600" : "text-destructive"}`}>
+                        {j.realizedPnl >= 0 ? "+" : ""}${j.realizedPnl}
+                      </td>
+                      <td className="px-4 py-2 border border-border text-center">
+                        {j.ss_path ? (
+                          <span className="text-[10px] text-primary">📎 View</span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-2 border border-border text-xs text-muted-foreground max-w-xs truncate">
                         {j.notes || "—"}
@@ -233,14 +253,20 @@ export function FutureCalendar() {
       )}
 
       {/* Journal dialog */}
-      {journalDialogDate && (
-        <FutureJournalDialog
-          open={!!journalDialogDate}
-          date={journalDialogDate}
-          onClose={() => setJournalDialogDate(null)}
-          onSaved={j => { setJournals(prev => [...prev, j]); setJournalDialogDate(null) }}
-        />
-      )}
+      <FutureJournalDialog
+        open={!!journalDialogDate}
+        date={journalDialogDate ?? ""}
+        accountId={accountId}
+        bucketId={bucketId}
+        onClose={() => setJournalDialogDate(null)}
+        onSaved={j => { setJournals(prev => [...prev, j]); setJournalDialogDate(null) }}
+      />
+
+      <JournalDetailDialog
+        open={!!detailJournal}
+        journal={detailJournal}
+        onClose={() => setDetailJournal(null)}
+      />
     </div>
   )
 }

@@ -23,12 +23,19 @@ export type SpotTrade = {
 
 export type FutureJournal = {
   id: number
-  date: string
-  pair: string
-  direction: "LONG" | "SHORT"
-  entryPrice: number
-  exitPrice: number
-  size: number
-  profit: number
-  notes: string
+  coinPair: string
+  positionType: "LONG" | "SHORT"
+  leverage: number
+  margin: number
+  realizedPnl: number
+  openDate: Date
+  closeDate: Date
+  ss_path: string
+  notes: string 
+}
+
+
+export type AccountTransfer = {
+  fromAccountId: number
+  toAccountId: number
 }

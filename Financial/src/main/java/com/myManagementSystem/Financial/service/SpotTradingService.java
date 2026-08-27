@@ -1,9 +1,6 @@
 package com.myManagementSystem.Financial.service;
 
-import com.myManagementSystem.Financial.dto.SpotAssetResponseDTO;
-import com.myManagementSystem.Financial.dto.SpotTransactionDTO;
-import com.myManagementSystem.Financial.dto.SpotTransactionRequestDTO;
-import com.myManagementSystem.Financial.dto.SpotTransactionResponseDTO;
+import com.myManagementSystem.Financial.dto.*;
 import com.myManagementSystem.Financial.entity.Account;
 import com.myManagementSystem.Financial.entity.Bucket;
 import com.myManagementSystem.Financial.entity.SpotAsset;
@@ -103,6 +100,31 @@ public class SpotTradingService {
             .filter(asset -> asset.getTotalQuantity().compareTo(BigDecimal.ZERO) > 0)
             .map(this::mapToDTO)
             .toList();
+    }
+
+    @Transactional
+    public BinanceFundTransferResponseDTO transferFundWithinAccounts(BinanceFundTransferRequestDTO request){
+        Bucket fromAccountBucket = bucketRepository.findById(request.fromAccountId())
+            .orElseThrow(() -> new ResourceNotFoundException("From Bucket not found"));
+
+        Bucket toAccountBucket = bucketRepository.findById(request.toAccountId())
+            .orElseThrow(() -> new ResourceNotFoundException("To Bucket not found"));
+
+        BigDecimal fromAccountCurrentValue = fromAccountBucket.getCurrentAmount().subtract(request.amount());
+        BigDecimal toAccountCurrentValue = toAccountBucket.getCurrentAmount().add(request.amount());
+
+        fromAccountBucket.setCurrentAmount(fromAccountCurrentValue);
+        toAccountBucket.setCurrentAmount(toAccountCurrentValue);
+
+        bucketRepository.save(fromAccountBucket);
+        bucketRepository.save(toAccountBucket);
+
+        return new BinanceFundTransferResponseDTO(
+            fromAccountBucket.getId(),
+            fromAccountCurrentValue,
+            toAccountBucket.getId(),
+            toAccountCurrentValue
+        );
     }
 
     private SpotTransactionResponseDTO mapToDTO(SpotAsset asset) {

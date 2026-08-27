@@ -8,6 +8,5 @@ import java.util.List;
 
 @Repository
 public interface FuturesPositionRepository extends JpaRepository<FuturesPosition, Long> {
-    List<FuturesPosition> findByAccountIdAndStatus(Long accountId, String status);
-    List<FuturesPosition> findByAccountIdOrderByOpenDateDesc(Long accountId);
+  List<FuturesPosition> findByAccountId(Long accountId);
 }

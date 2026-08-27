@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -10,108 +10,399 @@ import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue,
 } from "@/components/ui/select"
-import { FutureJournal } from "./types"
+import { AccountTransfer, FutureJournal } from "./types"
 import { fmtUSD } from "./helpers"
 
+// ─── Screenshot Upload Helper ─────────────────────────────────
+async function uploadScreenshot(file: File): Promise<string> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await fetch('/api/upload-screenshot', { method: 'POST', body: formData })
+  const data = await res.json()
+  if (!res.ok) throw new Error('Upload failed')
+  return data.path
+}
+
+
 export function FutureJournalDialog({
-  open, date, onClose, onSaved,
+  open, 
+  date, 
+  accountId, 
+  bucketId, 
+  onClose, 
+  onSaved,
 }: {
   open: boolean
   date: string
+  accountId: number
+  bucketId: number
   onClose: () => void
   onSaved: (journal: FutureJournal) => void
 }) {
   const [form, setForm] = useState({
-    pair: "BTC/USDT",
-    direction: "LONG" as "LONG" | "SHORT",
-    entryPrice: "",
-    exitPrice: "",
-    size: "",
+    coinPair: "BTC/USDT",
+    positionType: "LONG" as "LONG" | "SHORT",
+    leverage: 10,
+    margin: "",
+    pnl: "",
+    openDate: `${date}T09:00`,
+    closeDate: `${date}T10:00`,
     notes: "",
   })
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
 
-  const profit = form.entryPrice && form.exitPrice && form.size
-    ? form.direction === "LONG"
-      ? (Number(form.exitPrice) - Number(form.entryPrice)) * Number(form.size)
-      : (Number(form.entryPrice) - Number(form.exitPrice)) * Number(form.size)
-    : null
+  useEffect(() => {
+    if (!open) {
+      setForm({
+        coinPair: "BTC/USDT",
+        positionType: "LONG",
+        leverage: 10,
+        margin: "",
+        pnl: "",
+        openDate: `${date}T09:00`,
+        closeDate: `${date}T10:00`,
+        notes: "",
+      })
+      setScreenshot(null)
+      setScreenshotPreview(null)
+      setError(null)
+    }
+  }, [open, date])
 
-  const handleSave = () => {
-    if (!form.pair || !form.entryPrice || !form.exitPrice || !form.size) return
-    onSaved({
-      id: Date.now(),
-      date,
-      pair: form.pair,
-      direction: form.direction,
-      entryPrice: Number(form.entryPrice),
-      exitPrice: Number(form.exitPrice),
-      size: Number(form.size),
-      profit: profit ?? 0,
-      notes: form.notes,
-    })
-    onClose()
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setScreenshot(file)
+    setScreenshotPreview(URL.createObjectURL(file))
   }
+
+  const validate = (): string | null => {
+    if (!form.coinPair.trim()) return "Coin pair is required."
+    if (!form.margin || Number(form.margin) <= 0) return "Margin must be greater than 0."
+    if (!form.pnl) return "PnL is required."
+    if (!form.openDate) return "Open date is required."
+    if (!form.closeDate) return "Close date is required."
+    if (new Date(form.closeDate) < new Date(form.openDate)) return "Close date must be after open date."
+    return null
+  }
+
+  const handleSave = async () => {
+    const validationError = validate()
+    if (validationError) { setError(validationError); return }
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      let ssPath = ""
+      if (screenshot) {
+        ssPath = await uploadScreenshot(screenshot)
+      }
+
+      const dto: FutureJournalRequestDto = {
+        accountId,
+        bucketId,
+        coinPair: form.coinPair,
+        positionType: form.positionType,
+        leverage: form.leverage,
+        margin: Number(form.margin),
+        pnl: Number(form.pnl),
+        openDate: new Date(form.openDate).toISOString(),
+        closeDate: new Date(form.closeDate).toISOString(),
+        ss_path: ssPath,
+        notes: form.notes,
+      }
+
+      const res = await cryptoApi.createFutureJournal(dto)
+
+      onSaved({
+        id: res.data.id,
+        coinPair: res.data.coinPair,
+        positionType: res.data.positionType,
+        leverage: res.data.leverage,
+        margin: res.data.margin,
+        realizedPnl: res.data.realizedPnl,
+        openDate: new Date(res.data.openDate),
+        closeDate: new Date(res.data.closeDate),
+        notes: res.data.notes,
+        ss_path: res.data.ss_path,
+      })
+      onClose()
+    } catch {
+      setError("Failed to save journal entry.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const isProfit = form.pnl !== "" && Number(form.pnl) >= 0
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-md">
+      {/* 1. Increased width to max-w-3xl */}
+      <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Journal Trade — {date}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="flex gap-3">
-            <div className="space-y-1.5 flex-1">
-              <Label className="text-xs">Pair</Label>
-              <Input placeholder="e.g. BTC/USDT" value={form.pair}
-                onChange={e => setForm(p => ({ ...p, pair: e.target.value }))} className="h-8 text-xs" />
+
+        {/* 2. Changed 50/50 split to a custom ratio and increased gap */}
+        <div className="grid grid-cols-1 md:grid-cols-[1.3fr_1fr] gap-8 py-2">
+
+          {/* Left column */}
+          <div className="space-y-4">
+            {/* Coin pair + direction */}
+            <div className="flex gap-3">
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Coin Pair</Label>
+                <Input
+                  placeholder="e.g. BTC/USDT"
+                  value={form.coinPair}
+                  onChange={e => setForm(p => ({ ...p, coinPair: e.target.value }))}
+                  className="h-8 text-xs w-full"
+                />
+              </div>
+              <div className="space-y-1.5 w-28 shrink-0">
+                <Label className="text-xs">Direction</Label>
+                <div className="flex rounded-md border border-border overflow-hidden h-8">
+                  {(["LONG", "SHORT"] as const).map(d => (
+                    <button key={d} onClick={() => setForm(p => ({ ...p, positionType: d }))}
+                      className={`flex-1 text-xs font-semibold transition-colors
+                        ${form.positionType === d
+                          ? d === "LONG" ? "bg-green-600 text-white" : "bg-destructive text-white"
+                          : "text-muted-foreground hover:bg-muted"}`}>
+                      {d}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div className="space-y-1.5 w-28">
-              <Label className="text-xs">Direction</Label>
-              <Select value={form.direction} onValueChange={v => setForm(p => ({ ...p, direction: v as any }))}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="LONG">LONG</SelectItem>
-                  <SelectItem value="SHORT">SHORT</SelectItem>
-                </SelectContent>
-              </Select>
+
+            {/* Leverage + Margin + PnL */}
+            <div className="flex gap-3">
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Leverage (x)</Label>
+                <Input
+                  type="number"
+                  placeholder="10"
+                  value={form.leverage}
+                  onChange={e => setForm(p => ({ ...p, leverage: Number(e.target.value) }))}
+                  className="h-8 text-xs w-full"
+                />
+              </div>
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Margin (USDT)</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={form.margin}
+                  onChange={e => setForm(p => ({ ...p, margin: e.target.value }))}
+                  className="h-8 text-xs w-full"
+                />
+              </div>
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Realized PnL</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={form.pnl}
+                  onChange={e => setForm(p => ({ ...p, pnl: e.target.value }))}
+                  className={`h-8 text-xs w-full ${form.pnl !== "" ? isProfit ? "text-green-600 font-medium" : "text-destructive font-medium" : ""}`}
+                />
+              </div>
             </div>
+
+            {/* Dates */}
+            <div className="flex gap-3">
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Open Date & Time</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.openDate}
+                  onChange={e => setForm(p => ({ ...p, openDate: e.target.value }))}
+                  className="h-8 text-xs w-full"
+                />
+              </div>
+              <div className="space-y-1.5 flex-1 min-w-0">
+                <Label className="text-xs">Close Date & Time</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.closeDate}
+                  onChange={e => setForm(p => ({ ...p, closeDate: e.target.value }))}
+                  className="h-8 text-xs w-full"
+                />
+              </div>
+            </div>
+
+            {/* Notes */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Notes</Label>
+              <textarea
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs resize-none h-24 focus:outline-none focus:ring-1 focus:ring-ring"
+                placeholder="Setup reason, entry/exit rationale, lessons learned..."
+                value={form.notes}
+                onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+              />
+            </div>
+
+            {/* PnL preview */}
+            {form.pnl !== "" && form.margin !== "" && (
+              <div className={`rounded-lg p-3 text-center text-sm font-semibold
+                ${isProfit ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-destructive"}`}>
+                Realized PnL: {Number(form.pnl) >= 0 ? "+" : ""}${form.pnl}
+                {form.margin && (
+                  <span className="text-xs font-normal ml-2 opacity-70">
+                    ({((Number(form.pnl) / Number(form.margin)) * 100).toFixed(1)}% ROI)
+                  </span>
+                )}
+              </div>
+            )}
           </div>
-          <div className="flex gap-3">
-            <div className="space-y-1.5 flex-1">
-              <Label className="text-xs">Entry Price ($)</Label>
-              <Input type="number" placeholder="0" value={form.entryPrice}
-                onChange={e => setForm(p => ({ ...p, entryPrice: e.target.value }))} className="h-8 text-xs" />
+
+          {/* Right column — screenshot */}
+          <div className="space-y-3">
+            <Label className="text-xs">Trade Screenshot</Label>
+            <div
+              onClick={() => fileRef.current?.click()}
+              className={`rounded-lg border-2 border-dashed transition-colors cursor-pointer flex flex-col items-center justify-center w-full
+                ${screenshotPreview ? "border-border" : "border-border hover:border-primary/50 bg-muted/10"}
+                ${screenshotPreview ? "p-0 overflow-hidden" : "p-6"}`}
+              style={{ minHeight: "260px" }}
+            >
+              {screenshotPreview ? (
+                <img
+                  src={screenshotPreview}
+                  alt="Trade screenshot"
+                  className="w-full h-full object-contain max-h-72"
+                />
+              ) : (
+                <div className="text-center space-y-2">
+                  <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mx-auto">
+                    {/* Assuming you have an ImageIcon imported */}
+                    <div className="h-5 w-5 border-2 border-muted-foreground rounded-sm" /> 
+                  </div>
+                  <p className="text-xs text-muted-foreground font-medium">Click to upload screenshot</p>
+                  <p className="text-[10px] text-muted-foreground/70">PNG, JPG, WEBP</p>
+                </div>
+              )}
             </div>
-            <div className="space-y-1.5 flex-1">
-              <Label className="text-xs">Exit Price ($)</Label>
-              <Input type="number" placeholder="0" value={form.exitPrice}
-                onChange={e => setForm(p => ({ ...p, exitPrice: e.target.value }))} className="h-8 text-xs" />
-            </div>
-            <div className="space-y-1.5 flex-1">
-              <Label className="text-xs">Size</Label>
-              <Input type="number" placeholder="0" value={form.size}
-                onChange={e => setForm(p => ({ ...p, size: e.target.value }))} className="h-8 text-xs" />
-            </div>
-          </div>
-          {profit !== null && (
-            <div className={`rounded-lg p-3 text-center font-semibold text-sm
-              ${profit >= 0 ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-destructive"}`}>
-              Estimated P&L: {profit >= 0 ? "+" : ""}{fmtUSD(profit)}
-            </div>
-          )}
-          <div className="space-y-1.5">
-            <Label className="text-xs">Notes</Label>
-            <textarea
-              className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs resize-none h-20 focus:outline-none focus:ring-1 focus:ring-ring"
-              placeholder="What was your reason for the trade? How did it go?"
-              value={form.notes}
-              onChange={e => setForm(p => ({ ...p, notes: e.target.value }))}
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleFileChange}
             />
+            {screenshotPreview && (
+              <Button
+                variant="outline" size="sm" className="w-full text-xs"
+                onClick={() => { setScreenshot(null); setScreenshotPreview(null) }}
+              >
+                Remove Screenshot
+              </Button>
+            )}
           </div>
         </div>
+
+        {error && <p className="text-sm text-destructive mt-2">{error}</p>}
+
+        <DialogFooter className="mt-4">
+          <Button variant="outline" size="sm" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button size="sm" onClick={handleSave} disabled={loading}>
+            {/* Assuming Loader2 is imported */}
+            {loading && <div className="h-4 w-4 border-2 border-t-transparent border-white rounded-full animate-spin mr-2" />}
+            Save Journal
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+
+// ─── Journal Detail Popup ─────────────────────────────────────
+export function JournalDetailDialog({
+  open,
+  journal,
+  onClose,
+}: {
+  open: boolean
+  journal: FutureJournal | null
+  onClose: () => void
+}) {
+  if (!journal) return null
+  
+  // Fixed mapping to realizedPnl
+  const isProfit = journal.realizedPnl >= 0
+  const positionSize = journal.leverage * journal.margin
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            {journal.coinPair}
+            <Badge className={journal.positionType === "LONG"
+              ? "bg-green-500/10 text-green-600 border-green-500/20"
+              : "bg-red-500/10 text-red-600 border-red-500/20"}>
+              {journal.positionType}
+            </Badge>
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr] gap-6">
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                // Fixed format to use closeDate properly
+                { label: "Date", value: new Date(journal.closeDate).toLocaleDateString() },
+                { label: "Leverage", value: `${journal.leverage}x` },
+                { label: "Margin", value: `$${journal.margin}` },
+                { label: "Position Size", value: `$${positionSize.toLocaleString()}` },
+                {
+                  label: "Realized PnL",
+                  value: `${isProfit ? "+" : ""}$${journal.realizedPnl}`, // Fixed mapping
+                  className: isProfit ? "text-green-600 font-semibold" : "text-destructive font-semibold"
+                },
+              ].map(item => (
+                <div key={item.label} className="rounded-lg border border-border p-2.5">
+                  <p className="text-[10px] text-muted-foreground">{item.label}</p>
+                  <p className={`text-sm font-medium mt-0.5 ${item.className ?? ""}`}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {journal.notes && (
+              <div className="rounded-lg border border-border p-3">
+                <p className="text-[10px] text-muted-foreground mb-1.5">Notes</p>
+                <p className="text-xs leading-relaxed whitespace-pre-wrap">{journal.notes}</p>
+              </div>
+            )}
+          </div>
+
+          <div className="flex flex-col h-full">
+            <p className="text-xs text-muted-foreground mb-2">Screenshot</p>
+            {journal.ss_path ? (
+              <div className="rounded-lg border border-border bg-muted/10 flex-1 flex items-center justify-center overflow-hidden">
+                <img
+                  src={journal.ss_path}
+                  alt="Trade screenshot"
+                  className="w-full h-full object-contain max-h-[600px]"
+                />
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-border flex items-center justify-center flex-1 min-h-[200px]">
+                <p className="text-xs text-muted-foreground">No screenshot attached</p>
+              </div>
+            )}
+          </div>
+        </div>
+
         <DialogFooter>
-          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={handleSave}>Save Journal</Button>
+          <Button variant="outline" onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -121,35 +412,84 @@ export function FutureJournalDialog({
 interface TransferDialogProps {
   open: boolean
   onClose: () => void
+  // Update onSuccess to receive the new balances
+  onSuccess: (data: BinanceAccountTransferResponseDTO) => void 
   spotBalance: number
   futureBalance: number
   direction: "spot-to-future" | "future-to-spot"
+  accountTransfer: AccountTransfer | null
 }
 
 export function TransferDialog({
   open,
   onClose,
+  onSuccess,
   spotBalance,
   futureBalance,
   direction,
+  accountTransfer
 }: TransferDialogProps) {
+  const [amount, setAmount] = useState<string>("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const isSpotToFuture = direction === "spot-to-future"
-
-  const availableBalance = isSpotToFuture
-    ? spotBalance
-    : futureBalance
-
+  const availableBalance = isSpotToFuture ? spotBalance : futureBalance
   const fromAccount = isSpotToFuture ? "Spot" : "Futures"
   const toAccount = isSpotToFuture ? "Futures" : "Spot"
 
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(isOpen) => !isOpen && onClose()}
-    >
-      <DialogContent className="sm:max-w-sm">
+  // Reset state when dialog closes
+  useEffect(() => {
+    if (!open) {
+      setAmount("")
+      setError(null)
+    }
+  }, [open])
 
+  const handleTransfer = async () => {
+    const numAmount = Number(amount)
+    
+    // Validation
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setError("Please enter a valid amount.")
+      return
+    }
+    if (numAmount > availableBalance) {
+      setError(`Insufficient balance. Max available is ${fmtUSD(availableBalance)}`)
+      return
+    }
+    
+    // TypeScript Fix: Ensure account IDs exist before calling the API
+    if (!accountTransfer || !accountTransfer.fromAccountId || !accountTransfer.toAccountId) {
+      setError("Account mapping is missing. Please refresh the page.")
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      // API Call
+      const response = await cryptoApi.transferBetweenAccounts({
+        fromAccountId: accountTransfer.fromAccountId,
+        toAccountId: accountTransfer.toAccountId,
+        amount: numAmount
+      })
+
+      // Pass the returned DTO back to the parent to instantly update the UI
+      onSuccess(response.data)
+      onClose()
+    } catch (err: any) {
+      const backendMessage = err?.response?.data?.message || err?.response?.data || "Transfer failed. Please try again."
+      setError(typeof backendMessage === 'string' ? backendMessage : "Transfer failed. Please try again.")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>
             Transfer {fromAccount} → {toAccount}
@@ -157,44 +497,49 @@ export function TransferDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-
           <div className="rounded-lg bg-muted/30 px-3 py-2 space-y-1">
             <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">
-                Available in {fromAccount}
-              </span>
-
-              <span className="font-medium">
-                {fmtUSD(availableBalance)}
-              </span>
+              <span className="text-muted-foreground">Available in {fromAccount}</span>
+              <span className="font-medium">{fmtUSD(availableBalance)}</span>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label>Amount (USD)</Label>
+            <div className="flex items-center justify-between">
+              <Label>Amount (USD)</Label>
+              <button
+                onClick={() => { setAmount(String(availableBalance)); setError(null); }}
+                className="text-[10px] text-primary hover:underline font-medium"
+              >
+                Max: {fmtUSD(availableBalance)}
+              </button>
+            </div>
             <Input
               type="number"
               placeholder="0.00"
+              value={amount}
+              onChange={(e) => { setAmount(e.target.value); setError(null); }}
+              onKeyDown={(e) => e.key === "Enter" && handleTransfer()}
+              disabled={loading}
             />
           </div>
 
-          <p className="text-xs text-muted-foreground">
-            Funds will be moved from your {fromAccount} wallet to your{" "}
-            {toAccount} account.
-          </p>
+          {error && <p className="text-sm text-destructive font-medium">{error}</p>}
 
+          <p className="text-xs text-muted-foreground">
+            Funds will be moved from your {fromAccount} wallet to your {toAccount} account.
+          </p>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={loading}>
             Cancel
           </Button>
-
-          <Button onClick={onClose}>
+          <Button onClick={handleTransfer} disabled={loading || !amount}>
+            {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Transfer
           </Button>
         </DialogFooter>
-
       </DialogContent>
     </Dialog>
   )
@@ -204,8 +549,9 @@ export function TransferDialog({
 
 
 import { useEffect,useMemo } from "react"
-import { Loader2, Search } from "lucide-react"
-import { cryptoApi, SpotTradeDto } from "@/lib/api/binance"
+import { ImageIcon, Loader2, Search } from "lucide-react"
+import { BinanceAccountTransferResponseDTO, cryptoApi, FutureJournalRequestDto, SpotTradeDto } from "@/lib/api/binance"
+import { Badge } from "@/components/ui/badge"
 
 
 interface SpotTradeDialogProps {

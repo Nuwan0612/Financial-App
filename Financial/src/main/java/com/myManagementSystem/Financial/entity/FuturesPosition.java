@@ -32,14 +32,17 @@ public class FuturesPosition {
     @Column(name = "realized_pnl", precision = 19, scale = 4)
     private BigDecimal realizedPnl;
 
-    @Column(nullable = false)
-    private String status; // OPEN or CLOSED
-
     @Column(name = "open_date", nullable = false)
     private LocalDateTime openDate;
 
     @Column(name = "close_date")
     private LocalDateTime closeDate;
+
+    @Column(name = "ss_path")
+    private String ss_path;
+
+    @Column(name = "notes")
+    private String notes;
 
     // Directly linking to your global envelope system
     @ManyToOne(fetch = FetchType.LAZY)

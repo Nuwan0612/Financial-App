@@ -11,10 +11,9 @@ import {
   Tooltip, PieChart, Pie, Cell,
 } from "recharts"
 
-import { SpotCoin } from "./types"
+import { AccountTransfer, SpotCoin } from "./types"
 import {
-  spotCoins, spotHistory, futureHistory,
-  FUTURE_ACCOUNT_BALANCE_USD, FUTURE_TOTAL_PROFIT_USD,
+  spotHistory, futureHistory,
   PIE_COLORS
 } from "./constants"
 import { fmtUSD, fmtLKR, fmtBoth } from "./helpers"
@@ -28,42 +27,42 @@ import { subCategoryApi } from "@/lib/api/allocations"
 import { getUsdToLkrRate } from "@/lib/utils"
 import { cryptoApi } from "@/lib/api/binance"
 
+
 export default function CryptoDetail({ id, name }: { id: number; name: string }) {
   const router = useRouter()
   const [selectedCoin, setSelectedCoin] = useState<SpotCoin | null>(null)
 
   const [spotCoins, setSpotCoins] = useState<any[]>([])
+  const [futureJournals, setFutureJournals] = useState<any[]>([])
 
   const [snapshot, setSnapshot] = useState<any[]>([])
   const [exchangeRate, setExchangeRate] = useState<number>(0)
 
-  const [spotAccount, setSpotAccount] = useState<any>(null)
-  const [futureAccount, setFutureAccount] = useState<any>(null)
+  const [spotAccount, setSpotAccount] = useState<Bukets | null>(null)
+  const [futureAccount, setFutureAccount] = useState<Bukets | null>(null)
 
   const [totalInvestedUSD, setTotalInvestedUSD] = useState<number>(0)
   const [showTradeDialog, setShowTradeDialog] = useState(false)
 
-  // ── Spot calculations ──
   const spotInvestedUSD = spotCoins.reduce((s, c) => s + c.totalInvested, 0)
-  // AFTER — correct: (current - avg) × quantity, summed across all coins
+  const futureProfitUSD = futureJournals.reduce((totalPnl, journal) => totalPnl + journal.realizedPnl, 0)
+
+  //(current - avg) × quantity, summed across all coins
   const spotProfitUSD = spotCoins.reduce((totalPnl, coin) => totalPnl + (coin.currentPrice - coin.avgPrice) * coin.totalQuantity,0)
   const spotCurrentUSD = spotInvestedUSD + spotProfitUSD
 
-  // ── Future calculations ──
-  const futureInvestedUSD = 0
-  const futureProfitUSD = 0
+  
 
   const pieData = [
     { name: "Spot", value: Math.round(((spotInvestedUSD + spotAccount?.currentAmount || 0) / totalInvestedUSD) * 100) },
-    { name: "Futures", value: Math.round((futureInvestedUSD / totalInvestedUSD) * 100) },
+    { name: "Futures", value: Math.round((futureAccount?.currentAmount || 0) / totalInvestedUSD * 100) },
   ]
 
   const [showTransferDialog, setShowTransferDialog] = useState(false)
   const [transferDirection, setTransferDirection] = useState<"spot-to-future" | "future-to-spot">("spot-to-future")
+  const [accountTransfer, setAccountTransfer] = useState<AccountTransfer | null>(null)
 
   const [hasFutureAccount, setHasFutureAccount] = useState(false) 
-
-  
 
   const handleCreateFutureAccount = async () => {
     const payload = {
@@ -85,9 +84,10 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
       snapshotsApi.getSnapshotsByAccount(Number(id)),
       // Gracefully catch 404/errors so Promise.all does NOT fail
       cryptoApi.getSpotAssets(Number(id)).catch(() => ({ data: [] })), 
-      getUsdToLkrRate()
+      cryptoApi.getFutureJournals(Number(id)).catch(() => ({ data: [] })),
+      getUsdToLkrRate(),
     ])
-      .then(([bucketsRes, snapshotRes, spotAssetsRes, exchangeRate]) => {
+      .then(([bucketsRes, snapshotRes, spotAssetsRes, futureJournalsRes, exchangeRate]) => {
         // 1. Handle Bucket Data
         const spotBuyingPower = bucketsRes.data?.find(bucket => bucket.name.toLowerCase() === "spot")?.currentAmount || 0
         const futureBuyingPower = bucketsRes.data?.find(bucket => bucket.name.toLowerCase() === "future")?.currentAmount || 0
@@ -110,6 +110,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
         const spotInvested = spotAssetsRes.data?.reduce((total, coin) => total + coin.totalInvested, 0) || 0
         setTotalInvestedUSD(spotInvested + spotBuyingPower + futureBuyingPower)
 
+        setFutureJournals(futureJournalsRes.data || [])
         setSnapshot(snapshotRes.data || [])
         setExchangeRate(exchangeRate)
 
@@ -314,6 +315,10 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                 <Button size="sm" variant="outline" className="gap-1.5 shrink-0"
                   onClick={() => {
                     setTransferDirection("spot-to-future")
+                    setAccountTransfer({
+                      fromAccountId: spotAccount?.id || 0, 
+                      toAccountId: futureAccount?.id || 0
+                    })
                     setShowTransferDialog(true)
                   }}>
                   <ArrowLeftRight className="h-3.5 w-3.5" />
@@ -446,6 +451,10 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                       onClick={() => {
                         setTransferDirection("future-to-spot")
                         setShowTransferDialog(true)
+                        setAccountTransfer({
+                          fromAccountId: futureAccount?.id || 0,
+                          toAccountId: spotAccount?.id || 0
+                        })
                       }}>
                       <ArrowLeftRight className="h-3.5 w-3.5" />
                       Transfer
@@ -453,25 +462,40 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
                   </CardContent>
                 </Card>
               </div>
-              <FutureCalendar />
+              <FutureCalendar 
+                accountId={id}
+                bucketId={futureAccount?.id || 0}
+                futureJournals={futureJournals}
+              />
             </>
           )}
         </TabsContent>
       </Tabs>
 
-      <TransferDialog
-        open={showTransferDialog}
-        onClose={() => setShowTransferDialog(false)}
-        spotBalance={spotAccount?.currentAmount ?? 0}
-        futureBalance={futureAccount?.currentAmount ?? 0}
+      <TransferDialog 
+        open={showTransferDialog} 
+        onClose={() => setShowTransferDialog(false)} 
+        onSuccess={(data) => {
+          // Update the local state instantly using the response DTO
+          if (transferDirection === "spot-to-future") {
+            setSpotAccount(prev => prev ? { ...prev, currentAmount: data.fromAccountCurrentValue} : prev)
+            setFutureAccount(prev => prev ? { ...prev, currentAmount: data.toAccountCurrentValue } : prev)
+          } else {
+            setFutureAccount(prev => prev ? { ...prev, currentAmount: data.fromAccountCurrentValue } : prev)
+            setSpotAccount(prev => prev ? { ...prev, currentAmount: data.toAccountCurrentValue } : prev)
+          }
+        }}
+        spotBalance={spotAccount?.currentAmount || 0}
+        futureBalance={futureAccount?.currentAmount || 0}
         direction={transferDirection}
+        accountTransfer={accountTransfer}
       />
 
       <SpotTradeDialog
         open={showTradeDialog}
         accountId={id}
-        bucketId={spotAccount?.id}
-        spotBalance={spotAccount?.currentAmount ?? 0}
+        bucketId={spotAccount?.id || 0}
+        spotBalance={spotAccount?.currentAmount || 0}
         ownedCoins={spotCoins}
         onClose={() => setShowTradeDialog(false)}
         onSuccess={() => {

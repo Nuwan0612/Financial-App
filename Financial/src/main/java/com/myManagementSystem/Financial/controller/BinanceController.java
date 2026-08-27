@@ -31,16 +31,20 @@ public class BinanceController {
         return ResponseEntity.ok(response);
     }
 
-    // --- FUTURES ENDPOINTS ---
-    @PostMapping("/futures/open")
-    public ResponseEntity<FuturesPositionResponseDTO> openFuturesPosition(@Valid @RequestBody FuturesOpenRequestDTO request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(futuresTradingService.openPosition(request));
+    @PostMapping("/account/transfer")
+    public ResponseEntity<BinanceFundTransferResponseDTO> transferAmount(@Valid @RequestBody BinanceFundTransferRequestDTO request) {
+        BinanceFundTransferResponseDTO response = spotTradingService.transferFundWithinAccounts(request);
+        return ResponseEntity.ok(response);
     }
 
-    @PostMapping("/futures/{id}/close")
-    public ResponseEntity<FuturesPositionResponseDTO> closeFuturesPosition(
-            @PathVariable Long id,
-            @Valid @RequestBody FuturesCloseRequestDTO request) {
-        return ResponseEntity.ok(futuresTradingService.closePosition(id, request));
+    // --- FUTURES ENDPOINTS ---
+    @PostMapping("/futures/journal")
+    public ResponseEntity<FuturesJournalResponseDTO> futuresJournal(@Valid @RequestBody FuturesJournalRequestDTO request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(futuresTradingService.futuresJournal(request));
+    }
+
+    @GetMapping("/futures/journal/{accountId}")
+    public ResponseEntity<List<FuturesJournalResponseDTO>> getFuturesJournal(@PathVariable Long accountId) {
+        return ResponseEntity.ok(futuresTradingService.getFuturesJournal(accountId));
     }
 }
