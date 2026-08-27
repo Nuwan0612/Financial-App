@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 @RestController
 @RequestMapping("/api/v1/binance")
 @RequiredArgsConstructor
@@ -16,6 +18,11 @@ public class BinanceController {
 
     private final SpotTradingService spotTradingService;
     private final FuturesTradingService futuresTradingService;
+
+    @GetMapping("/spot/assets/{accountId}")
+    public ResponseEntity<List<SpotTransactionResponseDTO>> getSpotAssets(@PathVariable Long accountId) {
+        return ResponseEntity.ok(spotTradingService.getSpotAssetsByAccount(accountId));
+    }
 
     // --- SPOT ENDPOINTS ---
     @PostMapping("/spot/trade")

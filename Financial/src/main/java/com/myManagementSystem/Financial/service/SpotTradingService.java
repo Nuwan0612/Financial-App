@@ -93,6 +93,18 @@ public class SpotTradingService {
         return mapToDTO(savedAsset);
     }
 
+    // Add this to your existing SpotTradingService
+    @Transactional(readOnly = true)
+    public List<SpotTransactionResponseDTO> getSpotAssetsByAccount(Long accountId) {
+        List<SpotAsset> assets = spotAssetRepository.findByAccountId(accountId);
+
+        // Filter out assets where the user has sold everything (quantity == 0)
+        return assets.stream()
+            .filter(asset -> asset.getTotalQuantity().compareTo(BigDecimal.ZERO) > 0)
+            .map(this::mapToDTO)
+            .toList();
+    }
+
     private SpotTransactionResponseDTO mapToDTO(SpotAsset asset) {
         BigDecimal totalBuyQuantity = BigDecimal.ZERO;
         BigDecimal totalBuyCost = BigDecimal.ZERO;

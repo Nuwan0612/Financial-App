@@ -1,10 +1,15 @@
+import { SpotTransactionDTO } from "@/lib/api/binance"
+
 export type SpotCoin = {
   id: number
-  symbol: string
-  name: string
-  quantity: number
-  avgPrice: number
+  coin: string
+  totalQuantity: number
   currentPrice: number
+  avgPrice: number
+  totalInvested: number
+  accountId: number
+  bucketId: number
+  transactions: SpotTransactionDTO[]
 }
 
 export type SpotTrade = {

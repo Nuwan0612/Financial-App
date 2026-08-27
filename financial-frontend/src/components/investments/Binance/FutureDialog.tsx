@@ -213,6 +213,7 @@ interface SpotTradeDialogProps {
   accountId: number
   bucketId: number
   spotBalance: number
+  ownedCoins: any[]
   onClose: () => void
   onSuccess: () => void
 }
@@ -222,6 +223,7 @@ export function SpotTradeDialog({
   accountId,
   bucketId,
   spotBalance,
+  ownedCoins,
   onClose,
   onSuccess,
 }: SpotTradeDialogProps) {
@@ -237,6 +239,8 @@ export function SpotTradeDialog({
   const [fetchingPrice, setFetchingPrice] = useState(false)
   const [fetchingCoins, setFetchingCoins] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  
 
   // Fetch all available coins on open
   useEffect(() => {
@@ -273,19 +277,48 @@ export function SpotTradeDialog({
     }
   }, [open])
 
-  const filteredCoins = useMemo(() =>
-    search.length >= 1
+  const filteredCoins = useMemo(() => {
+    if (type === "SELL") {
+      // Only show coins you own
+      return ownedCoins
+        .map(c => c.coin)
+        .filter(c => c.toLowerCase().startsWith(search.toLowerCase()))
+    }
+    // BUY logic shows all coins
+    return search.length >= 1
       ? allCoins.filter(c => c.toLowerCase().startsWith(search.toLowerCase())).slice(0, 20)
-      : [],
-    [search, allCoins]
-  )
+      : []
+  }, [search, allCoins, ownedCoins, type])
+
+  
+
+  const selectedOwnedCoin = useMemo(() => 
+    ownedCoins.find(c => c.coin === selectedCoin), 
+  [selectedCoin, ownedCoins])
 
   // Quantity the user will receive or sell
   const quantity = useMemo(() => {
     const amountNum = Number(investAmount)
     if (!currentPrice || !investAmount || isNaN(amountNum) || amountNum <= 0) return null
-    return amountNum / currentPrice
-  }, [currentPrice, investAmount])
+    
+    let calcQty = amountNum / currentPrice
+    
+    // SAFEGUARD: Prevent floating point errors when selling MAX
+    if (type === "SELL" && selectedOwnedCoin) {
+      // If the calculated quantity is practically equal to or slightly exceeds the total, cap it exactly to totalQuantity
+      if (Math.abs(calcQty - selectedOwnedCoin.totalQuantity) < 0.000001 || calcQty > selectedOwnedCoin.totalQuantity) {
+        calcQty = selectedOwnedCoin.totalQuantity
+      }
+    }
+    
+    return calcQty
+  }, [currentPrice, investAmount, type, selectedOwnedCoin])
+
+  // Estimated realized P&L for this sell (only meaningful when SELL + coin owned)
+  const estimatedPnl = useMemo(() => {
+    if (type !== "SELL" || quantity === null || !currentPrice || !selectedOwnedCoin) return null
+    return (currentPrice - selectedOwnedCoin.avgPrice) * quantity
+  }, [type, quantity, currentPrice, selectedOwnedCoin])
 
   const validate = (): string | null => {
     if (!selectedCoin) return "Please select a coin."
@@ -360,37 +393,70 @@ export function SpotTradeDialog({
             ))}
           </div>
 
-          {/* Coin search */}
+          {/* Coin selection */}
           <div className="space-y-1.5">
             <Label className="text-xs">Coin</Label>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                placeholder="Search symbol e.g. BTC, ETH..."
-                value={selectedCoin ?? search}
-                onChange={e => { setSearch(e.target.value); setSelectedCoin(null); setCurrentPrice(null) }}
-                className="pl-9 h-9"
-              />
-            </div>
+            
+            {type === "BUY" ? (
+              <>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    placeholder="Search symbol e.g. BTC, ETH..."
+                    value={selectedCoin ?? search}
+                    onChange={e => { setSearch(e.target.value); setSelectedCoin(null); setCurrentPrice(null) }}
+                    className="pl-9 h-9"
+                  />
+                </div>
 
-            {/* Dropdown results */}
-            {search && !selectedCoin && (
-              <div className="rounded-lg border border-border bg-background shadow-md max-h-40 overflow-y-auto">
-                {fetchingCoins ? (
-                  <div className="flex items-center justify-center py-4">
-                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                {/* Dropdown results for BUY */}
+                {search && !selectedCoin && (
+                  <div className="rounded-lg border border-border bg-background shadow-md max-h-40 overflow-y-auto">
+                    {fetchingCoins ? (
+                      <div className="flex items-center justify-center py-4">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    ) : filteredCoins.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-4">No coins found.</p>
+                    ) : filteredCoins.map(coin => (
+                      <button key={coin}
+                        onClick={() => { setSelectedCoin(coin); setSearch(coin) }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors">
+                        {coin}
+                        <span className="text-xs text-muted-foreground ml-2">{coin}/USDT</span>
+                      </button>
+                    ))}
                   </div>
-                ) : filteredCoins.length === 0 ? (
-                  <p className="text-xs text-muted-foreground text-center py-4">No coins found.</p>
-                ) : filteredCoins.map(coin => (
-                  <button key={coin}
-                    onClick={() => { setSelectedCoin(coin); setSearch(coin) }}
-                    className="w-full text-left px-3 py-2 text-sm hover:bg-muted transition-colors">
-                    {coin}
-                    <span className="text-xs text-muted-foreground ml-2">{coin}/USDT</span>
-                  </button>
-                ))}
-              </div>
+                )}
+              </>
+            ) : (
+              /* Dropdown for SELL */
+              <Select 
+                value={selectedCoin || ""} 
+                onValueChange={(val) => { 
+                  setSelectedCoin(val); 
+                  setCurrentPrice(null);
+                  setInvestAmount(""); // Reset amount when changing coins
+                }}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select a coin to sell..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {ownedCoins.length === 0 ? (
+                    <p className="p-3 text-sm text-muted-foreground text-center">No coins available to sell.</p>
+                  ) : (
+                    ownedCoins.map((c) => (
+                      <SelectItem key={c.coin} value={c.coin}>
+                        <div className="flex items-center gap-4">
+                          <span className="font-medium">{c.coin}</span>
+                          <span className="text-xs text-muted-foreground">Avail: {c.totalQuantity}</span>
+                        </div>
+                      </SelectItem>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
             )}
           </div>
 
@@ -412,14 +478,30 @@ export function SpotTradeDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label className="text-xs">Amount to {type === "BUY" ? "Spend" : "Receive"} (USDT)</Label>
+              
               {type === "BUY" && (
                 <button
                   onClick={() => { setInvestAmount(String(spotBalance)); setError(null) }}
-                  className="text-[10px] text-primary hover:underline">
+                  className="text-[10px] text-primary hover:underline font-medium">
                   Max: {fmtUSD(spotBalance)}
                 </button>
               )}
+
+              {type === "SELL" && selectedOwnedCoin && currentPrice && (
+                <button
+                  onClick={() => { 
+                    // Calculate exact USDT value of all held coins
+                    const maxUsdt = selectedOwnedCoin.totalQuantity * currentPrice;
+                    // Use string representation to preserve decimal accuracy
+                    setInvestAmount(maxUsdt.toString()); 
+                    setError(null);
+                  }}
+                  className="text-[10px] text-primary hover:underline font-medium">
+                  Sell All: {selectedOwnedCoin.totalQuantity} {selectedCoin}
+                </button>
+              )}
             </div>
+            
             <Input
               type="number"
               placeholder="0.00"
@@ -435,9 +517,7 @@ export function SpotTradeDialog({
             <div className="rounded-lg border border-border px-3 py-2.5 space-y-1.5">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">You will {type === "BUY" ? "receive" : "sell"}</span>
-                <span className="font-semibold">
-                  {quantity.toFixed(8)} {selectedCoin}
-                </span>
+                <span className="font-semibold">{quantity.toFixed(8)} {selectedCoin}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">At price</span>
@@ -447,6 +527,18 @@ export function SpotTradeDialog({
                 <span className="text-muted-foreground">Total Value (USDT)</span>
                 <span className="font-semibold">{fmtUSD(Number(investAmount))}</span>
               </div>
+
+              {/* NEW: show realized P&L only for SELL */}
+              {type === "SELL" && estimatedPnl !== null && selectedOwnedCoin && (
+                <div className="flex items-center justify-between text-xs border-t border-border pt-1.5">
+                  <span className="text-muted-foreground">
+                    Est. Profit/Loss <span className="opacity-60">(avg {fmtUSD(selectedOwnedCoin.avgPrice)})</span>
+                  </span>
+                  <span className={`font-semibold ${estimatedPnl >= 0 ? "text-green-600" : "text-destructive"}`}>
+                    {estimatedPnl >= 0 ? "+" : ""}{fmtUSD(estimatedPnl)}
+                  </span>
+                </div>
+              )}
             </div>
           )}
 
@@ -458,7 +550,7 @@ export function SpotTradeDialog({
           <Button
             onClick={handleSubmit}
             disabled={loading || !selectedCoin || !currentPrice || !investAmount}
-            className={type === "SELL" ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+            className={type === "SELL" ? "bg-destructive  hover:bg-destructive/90" : ""}
           >
             {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {type === "BUY" ? "Buy" : "Sell"} {selectedCoin ?? "Coin"}

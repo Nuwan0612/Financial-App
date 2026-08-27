@@ -26,12 +26,14 @@ import { SpotTradeDialog, TransferDialog } from "./FutureDialog"
 import { bucketsApi, Bukets, snapshotsApi } from "@/lib/api/accounts"
 import { subCategoryApi } from "@/lib/api/allocations"
 import { getUsdToLkrRate } from "@/lib/utils"
+import { cryptoApi } from "@/lib/api/binance"
 
 export default function CryptoDetail({ id, name }: { id: number; name: string }) {
   const router = useRouter()
   const [selectedCoin, setSelectedCoin] = useState<SpotCoin | null>(null)
 
-  const [bucket, setBucket] = useState<Bukets[]>([])
+  const [spotCoins, setSpotCoins] = useState<any[]>([])
+
   const [snapshot, setSnapshot] = useState<any[]>([])
   const [exchangeRate, setExchangeRate] = useState<number>(0)
 
@@ -42,16 +44,17 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
   const [showTradeDialog, setShowTradeDialog] = useState(false)
 
   // ── Spot calculations ──
-  const spotInvestedUSD = spotCoins.reduce((s, c) => s + c.quantity * c.avgPrice, 0)
-  const spotCurrentUSD = spotCoins.reduce((s, c) => s + c.quantity * c.currentPrice, 0)
-  const spotProfitUSD = spotCurrentUSD - spotInvestedUSD
+  const spotInvestedUSD = spotCoins.reduce((s, c) => s + c.totalInvested, 0)
+  // AFTER — correct: (current - avg) × quantity, summed across all coins
+  const spotProfitUSD = spotCoins.reduce((totalPnl, coin) => totalPnl + (coin.currentPrice - coin.avgPrice) * coin.totalQuantity,0)
+  const spotCurrentUSD = spotInvestedUSD + spotProfitUSD
 
   // ── Future calculations ──
-  const futureInvestedUSD = FUTURE_ACCOUNT_BALANCE_USD
-  const futureProfitUSD = FUTURE_TOTAL_PROFIT_USD
+  const futureInvestedUSD = 0
+  const futureProfitUSD = 0
 
   const pieData = [
-    { name: "Spot", value: Math.round((spotInvestedUSD / totalInvestedUSD) * 100) },
+    { name: "Spot", value: Math.round(((spotInvestedUSD + spotAccount?.currentAmount || 0) / totalInvestedUSD) * 100) },
     { name: "Futures", value: Math.round((futureInvestedUSD / totalInvestedUSD) * 100) },
   ]
 
@@ -77,35 +80,75 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
   }
 
   useEffect(() => {
-      Promise.all([
-        bucketsApi.getBucketsByAccount(id),
-        snapshotsApi.getSnapshotsByAccount(Number(id)),
-        getUsdToLkrRate()
-      ])
-        .then(([bucketsRes, snapshotRes, exchangeRate]) => {
-          // 1. Handle Bucket Data
-          if (bucketsRes.data && bucketsRes.data.length > 0) {
-            setBucket(bucketsRes.data)
-            setTotalInvestedUSD(bucketsRes.data.reduce((total, bucket) => total + bucket.cumulativeAmount, 0))
+    Promise.all([
+      bucketsApi.getBucketsByAccount(Number(id)),
+      snapshotsApi.getSnapshotsByAccount(Number(id)),
+      // Gracefully catch 404/errors so Promise.all does NOT fail
+      cryptoApi.getSpotAssets(Number(id)).catch(() => ({ data: [] })), 
+      getUsdToLkrRate()
+    ])
+      .then(([bucketsRes, snapshotRes, spotAssetsRes, exchangeRate]) => {
+        // 1. Handle Bucket Data
+        const spotBuyingPower = bucketsRes.data?.find(bucket => bucket.name.toLowerCase() === "spot")?.currentAmount || 0
+        const futureBuyingPower = bucketsRes.data?.find(bucket => bucket.name.toLowerCase() === "future")?.currentAmount || 0
 
-            const futureBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "future")
-            if(futureBucket){
-              setHasFutureAccount(true)
-              setFutureAccount(futureBucket)
-            }
-
-            const spotBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "spot")
-            if(spotBucket){
-              setSpotAccount(spotBucket)
-            }
+        if (bucketsRes.data && bucketsRes.data.length > 0) {
+          const futureBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "future")
+          if (futureBucket) {
+            setHasFutureAccount(true)
+            setFutureAccount(futureBucket)
           }
 
-          // 2. Handle Snapshot Data
-          setSnapshot(snapshotRes.data)
-          setExchangeRate(exchangeRate)
-        })
-        .catch((error) => console.error("Failed to fetch account data", error))
-    }, [id])
+          const spotBucket = bucketsRes.data.find(bucket => bucket.name.toLowerCase() === "spot")
+          if (spotBucket) {
+            setSpotAccount(spotBucket)
+          }
+        }
+
+        // 2. Handle Spot Coins (Defaults to [] if none found)
+        setSpotCoins(spotAssetsRes.data || [])
+        const spotInvested = spotAssetsRes.data?.reduce((total, coin) => total + coin.totalInvested, 0) || 0
+        setTotalInvestedUSD(spotInvested + spotBuyingPower + futureBuyingPower)
+
+        setSnapshot(snapshotRes.data || [])
+        setExchangeRate(exchangeRate)
+
+
+      })
+      .catch((error) => console.error("Failed to fetch account data", error))
+  }, [id])
+
+  useEffect(() => {
+    if (spotCoins.length === 0) return
+
+    const symbols = spotCoins.map(c => c.coin).join(",")
+    let cancelled = false
+
+    const refreshPrices = async () => {
+      try {
+        const res = await fetch(`/api/binance/crypto-prices?symbols=${symbols}`)
+        const data = await res.json() // expected shape: { BTC: 65000, ETH: 3200, ... }
+
+        if (cancelled) return
+        setSpotCoins(prev =>
+          prev.map(coin => ({
+            ...coin,
+            currentPrice: data[coin.coin] ?? coin.currentPrice, // keep old price if fetch didn't include it
+          }))
+        )
+      } catch (err) {
+        console.error("Failed to refresh spot prices", err)
+      }
+    }
+
+    refreshPrices() // run once immediately
+    const intervalId = setInterval(refreshPrices, 15000) // every 15s — tune as needed
+
+    return () => {
+      cancelled = true
+      clearInterval(intervalId)
+    }
+  }, [spotCoins.length]) // re-arm only when the set of held coins changes (new buy/sell of a new coin), not on every price tick
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1400px" }}>
@@ -294,58 +337,64 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
           </div>
 
           <div className="rounded-lg border border-border overflow-hidden">
-            <table className="w-full text-sm border-collapse">
-              <thead>
-                <tr className="bg-muted/50">
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground border border-border">Coin</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-24">Quantity</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Avg Price</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Current</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Invested</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-32">P&L</th>
-                </tr>
-              </thead>
-              <tbody>
-                {spotCoins.map(coin => {
-                  const invested = coin.quantity * coin.avgPrice
-                  const current = coin.quantity * coin.currentPrice
-                  const pnl = current - invested
-                  const isProfit = pnl >= 0
-                  const isSelected = selectedCoin?.id === coin.id
+            {spotCoins.length === 0 ? (
+            <div className="rounded-lg border border-border py-12 flex items-center justify-center text-sm text-muted-foreground">
+              No spot coins found.
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-muted/50">
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground border border-border">Coin</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-24">Quantity</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Avg Price</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Current</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-28">Invested</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground border border-border w-32">P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {spotCoins.map(coin => {
+                    const invested = coin.totalInvested 
+                    const pnl = (coin.currentPrice - coin.avgPrice) * coin.totalQuantity
+                    const isProfit = pnl >= 0
+                    const isSelected = selectedCoin?.id === coin.id
 
-                  return (
-                    <tr
-                      key={coin.id}
-                      onClick={() => setSelectedCoin(isSelected ? null : coin)}
-                      className={`hover:bg-muted/20 transition-colors cursor-pointer ${isSelected ? "bg-primary/5" : ""}`}
-                    >
-                      <td className="px-4 py-3 border border-border">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-primary">{coin.symbol}</span>
-                          <span className="text-xs text-muted-foreground">{coin.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 border border-border text-right tabular-nums">{coin.quantity}</td>
-                      <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
-                        {fmtUSD(coin.avgPrice)}
-                      </td>
-                      <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
-                        {fmtUSD(coin.currentPrice)}
-                      </td>
-                      <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
-                        {fmtUSD(invested)}
-                      </td>
-                      <td className={`px-4 py-3 border border-border text-right tabular-nums font-medium ${isProfit ? "text-green-600" : "text-destructive"}`}>
-                        <div className="flex items-center justify-end gap-1">
-                          {isProfit ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                          {isProfit ? "+" : "-"}{fmtUSD(Math.abs(pnl))}
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr
+                        key={coin.id}
+                        onClick={() => setSelectedCoin(isSelected ? null : coin)}
+                        className={`hover:bg-muted/20 transition-colors cursor-pointer ${isSelected ? "bg-primary/5" : ""}`}
+                      >
+                        <td className="px-4 py-3 border border-border">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-primary">{coin.coin}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 border border-border text-right tabular-nums">{coin.totalQuantity}</td>
+                        <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
+                          {fmtUSD(coin.avgPrice)}
+                        </td>
+                        <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
+                          {fmtUSD(coin.currentPrice)}
+                        </td>
+                        <td className="px-4 py-3 border border-border text-right tabular-nums text-muted-foreground">
+                          {fmtUSD(invested)}
+                        </td>
+                        <td className={`px-4 py-3 border border-border text-right tabular-nums font-medium ${isProfit ? "text-green-600" : "text-destructive"}`}>
+                          <div className="flex items-center justify-end gap-1">
+                            {isProfit ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                            {isProfit ? "+" : "-"}{fmtUSD(Math.abs(pnl))}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
           </div>
 
           {selectedCoin && (
@@ -423,6 +472,7 @@ export default function CryptoDetail({ id, name }: { id: number; name: string })
         accountId={id}
         bucketId={spotAccount?.id}
         spotBalance={spotAccount?.currentAmount ?? 0}
+        ownedCoins={spotCoins}
         onClose={() => setShowTradeDialog(false)}
         onSuccess={() => {
           setShowTradeDialog(false)
