@@ -2,7 +2,6 @@ import { X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { SpotCoin } from "./types"
-import { spotTrades } from "./constants"
 import { fmtUSD } from "./helpers"
 
 export function CoinTransactionPanel({ coin, onClose }: { coin: SpotCoin; onClose: () => void }) {
