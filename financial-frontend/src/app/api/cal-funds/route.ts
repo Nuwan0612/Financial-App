@@ -1,67 +1,63 @@
 // src/app/api/cal-funds/route.ts
-import * as cheerio from 'cheerio'
-import { NextResponse } from 'next/server'
+import { NextResponse } from "next/server"
+
+interface CalFundRate {
+  FUND: string
+  FUND_NAME: string
+  LATEST_DATE: string
+  LATEST_PRICE: string
+  OLD_DATE: string
+  OLD_PRICE: string
+  PORTFOLIO: string
+  RATE_PERIOD: string
+}
+
+interface CalFundRatesResponse {
+  UTMS_FUND: CalFundRate[]
+}
+
+interface FormattedCalFund {
+  fundName: string
+  sellPrice: number
+  buyPrice: number
+  asOfDate: string
+}
 
 export async function GET() {
-  const url = "https://www.utasl.lk/unit-prices/"
+  const yesterday = new Date()
+  yesterday.setDate(yesterday.getDate() - 1)
+  const dateStr = yesterday.toISOString().slice(0, 10)
+  const url = `https://cal.lk/wp-admin/admin-ajax.php?action=getUTFundRates&valuedate=${dateStr}`
 
   try {
     const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "text/html"
-      },
-      next: { revalidate: 3600 } // cache for 1 hour
+      headers: { Accept: "application/json" },
+      next: { revalidate: 3600 }, // cache for 1 hour
     })
 
     if (!response.ok) throw new Error(`HTTP error: ${response.status}`)
 
-    const html = await response.text()
-    const $ = cheerio.load(html)
+    const data: CalFundRatesResponse = await response.json()
+    const funds = data.UTMS_FUND ?? []
 
-    const headers: string[] = []
-    $("table thead th").each((_, el) => {
-      headers.push($(el).text().trim())
-    })
-
-    const allFunds: Record<string, string>[] = []
-    $("table tbody tr").each((_, row) => {
-      const cols = $(row).find("td")
-      if (cols.length === 0) return
-      
-      const fund: Record<string, string> = {}
-      cols.each((i, col) => {
-        fund[headers[i] || `col_${i}`] = $(col).text().trim()
-      })
-      allFunds.push(fund)
-    })
-
-    // 1. Filter for CAL funds
-    const calFundsRaw = allFunds.filter(f =>
-      JSON.stringify(f).toLowerCase().includes("capital alliance")
-    )
-
-    // 2. Map the raw dynamic headers to your strict property names
-    const formattedCalFunds = calFundsRaw.map(fund => {
-      // We search the keys dynamically in case UTASL adds weird spacing to their headers
-      const fundNameKey = Object.keys(fund).find(k => k.toLowerCase().includes('fund name')) || 'Fund Name'
-      const sellPriceKey = Object.keys(fund).find(k => k.toLowerCase().includes('selling price')) || 'Selling Price (LKR)'
-      const buyPriceKey = Object.keys(fund).find(k => k.toLowerCase().includes('buying price')) || 'Buying Price (LKR)'
-
+    // CAL's endpoint only returns a single NAV per fund (LATEST_PRICE), not
+    // separate buy/sell prices like UTASL's table did. We map it to both
+    // fields since that's what FundCard.tsx reads (liveFund.sellPrice).
+    const formattedCalFunds: FormattedCalFund[] = funds.map((fund) => {
+      const price = parseFloat(fund.LATEST_PRICE)
       return {
-        fundName: fund[fundNameKey] || "Unknown Fund",
-        // Remove commas and convert to float for immediate calculation use
-        sellPrice: parseFloat(fund[sellPriceKey]?.replace(/,/g, "") || "0"),
-        buyPrice: parseFloat(fund[buyPriceKey]?.replace(/,/g, "") || "0")
+        fundName: fund.FUND_NAME.trim(),
+        sellPrice: price,
+        buyPrice: price,
+        asOfDate: fund.LATEST_DATE,
       }
     })
 
-    console.log("Formatted CAL Funds:", formattedCalFunds) 
+    console.log("Formatted CAL Funds:", formattedCalFunds)
 
     return NextResponse.json(formattedCalFunds)
-    
   } catch (err) {
-    console.error("Scrape error:", err)
+    console.error("Fetch error:", err)
     return NextResponse.json({ error: "Failed to fetch funds" }, { status: 500 })
   }
 }

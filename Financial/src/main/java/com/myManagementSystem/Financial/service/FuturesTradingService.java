@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Slf4j
@@ -78,5 +79,31 @@ public class FuturesTradingService {
                 position.getSs_path(),
                 position.getNotes()
         );
+    }
+
+
+    @Transactional
+    public void deleteJournalById(Long journalId) {
+        log.info("Attempting to delete Future Journal by ID {}", journalId);
+
+        FuturesPosition journal = futuresRepository.findById(journalId)
+            .orElseThrow(() -> {
+                log.warn("Deletion failed. Future Journal with ID {} not found", journalId);
+                return new ResourceNotFoundException("Future Journal with ID " + journalId + " not found");
+            });
+
+        Bucket bucket = journal.getBucket();
+
+        if (bucket != null && journal.getRealizedPnl() != null) {
+            BigDecimal revertedBalance = bucket.getCurrentAmount().subtract(journal.getRealizedPnl());
+            bucket.setCurrentAmount(revertedBalance);
+
+            bucketRepository.save(bucket);
+            log.info("Reverted {} USDT from Bucket ID {} for deleted journal", journal.getRealizedPnl(), bucket.getId());
+        }
+
+        futuresRepository.delete(journal);
+
+        log.info("Successfully deleted Future Journal with ID: {}", journalId);
     }
 }

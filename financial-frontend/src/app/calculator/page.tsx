@@ -62,6 +62,18 @@ const FinanceCalculatorPage = () => {
 
   const grandTotalPct = subCategories.reduce((s, i) => s + i.percentage, 0)
 
+  const [amountOverrides, setAmountOverrides] = useState<Record<number, number>>({})
+
+  // Compute each row's actual amount
+  const getAmount = (item: SubCategory) => {
+    if (amountOverrides[item.id] !== undefined) return amountOverrides[item.id]
+    return (total * item.percentage) / 100
+  }
+
+  // Total of all current amounts
+  const totalCurrentAmount = subCategories.reduce((s, item) => s + getAmount(item), 0)
+  const deviation = totalCurrentAmount - total  // positive = over, negative = under
+
   const handleAddAllToTransaction = async () => {
   try {
     setAddingId(-1)
@@ -69,7 +81,7 @@ const FinanceCalculatorPage = () => {
 
     const transactions: TransactionDto[] = subCategories.map(item => ({
       description: `${item.name} allocation`,
-      amount: (total * item.percentage) / 100,
+      amount: getAmount(item),
       openingDate: today,
       fromAccountId: null,   
       fromBucketId: null,
@@ -224,26 +236,52 @@ const FinanceCalculatorPage = () => {
                     )}
 
                     <td className="px-4 py-3 border border-border text-right tabular-nums font-medium">
-                      {fmt((total * item.percentage) / 100)}
+                      <Input
+                        type="number"
+                        value={getAmount(item) || ""}
+                        onChange={e => {
+                          setAmountOverrides(prev => ({
+                            ...prev,
+                            [item.id]: Number(e.target.value)
+                          }))
+                        }}
+                        className="h-7 text-xs text-right border-0 shadow-none focus-visible:ring-1 w-32 ml-auto tabular-nums"
+                      />
                     </td>
                   </tr>
                 ))
               })}
 
               {/* Grand total */}
-              <tr className="bg-muted/50 font-semibold">
+              <tr className="bg-muted/50 font-semibold border-t-2 border-border">
                 <td className="px-4 py-3 border border-border" colSpan={3}>
-                  Total
+                  <div className="flex items-center justify-between">
+                    <span>Total</span>
+                    {Object.keys(amountOverrides).length > 0 && (
+                      <Button
+                        variant="outline" size="sm"
+                        onClick={() => setAmountOverrides({})}
+                        className="text-xs gap-1.5 h-6"
+                      >
+                        Reset to Calculated
+                      </Button>
+                    )}
+                  </div>
                 </td>
+                <td className="px-4 py-3 border border-border text-right tabular-nums">{fmt(grandTotalPct)}%</td>
+                <td className="px-4 py-3 border border-border text-right tabular-nums">{fmt(grandTotalPct)}%</td>
                 <td className="px-4 py-3 border border-border text-right tabular-nums">
-                  {fmt(grandTotalPct)}%
+                  <div className="flex flex-col items-end gap-0.5">
+                    <span>{fmt(totalCurrentAmount)}</span>
+                    {deviation !== 0 && (
+                      <span className={`text-xs font-normal ${deviation > 0 ? "text-destructive" : "text-amber-500"}`}>
+                        {deviation > 0 ? "+" : ""}{fmt(deviation)} {deviation > 0 ? "over" : "under"}
+                      </span>
+                    )}
+                  </div>
+                
                 </td>
-                <td className="px-4 py-3 border border-border text-right tabular-nums">
-                  {fmt(grandTotalPct)}%
-                </td>
-                <td className="px-4 py-3 border border-border text-right tabular-nums">
-                  LKR {fmt((total * grandTotalPct) / 100)}
-                </td>
+                {/* <td className="px-4 py-3 border border-border" /> */}
               </tr>
             </tbody>
           </table>

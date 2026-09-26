@@ -328,19 +328,41 @@ export function JournalDetailDialog({
   open,
   journal,
   onClose,
+  onDelete, // NEW: Callback to update parent state
 }: {
   open: boolean
   journal: FutureJournal | null
   onClose: () => void
+  onDelete: (id: number) => void
 }) {
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
   if (!journal) return null
-  
-  // Fixed mapping to realizedPnl
+
   const isProfit = journal.realizedPnl >= 0
   const positionSize = journal.leverage * journal.margin
 
+  const handleDelete = async (id: number) => {
+    try {
+      setIsDeleting(true)
+      setError(null)
+      
+      // Call your API
+      await cryptoApi.deleteFutureJournal(id)
+      
+      // Instantly update the parent UI and close the dialog
+      onDelete(id)
+      onClose()
+    } catch (err: any) {
+      setError("Failed to delete journal entry. Please try again.")
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
-    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && !isDeleting && onClose()}>
       <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -357,14 +379,16 @@ export function JournalDetailDialog({
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               {[
-                // Fixed format to use closeDate properly
-                { label: "Date", value: new Date(journal.closeDate).toLocaleDateString() },
+                { label: "Open Date", value: `${new Date(journal.openDate).toLocaleDateString()}` },
+                { label: "Open Time", value: `${new Date(journal.openDate).toLocaleTimeString()}` },
+                { label: "Close Date", value: `${new Date(journal.closeDate).toLocaleDateString()}` },
+                { label: "Close Time", value: `${new Date(journal.closeDate).toLocaleTimeString()}` },
                 { label: "Leverage", value: `${journal.leverage}x` },
                 { label: "Margin", value: `$${journal.margin}` },
                 { label: "Position Size", value: `$${positionSize.toLocaleString()}` },
                 {
                   label: "Realized PnL",
-                  value: `${isProfit ? "+" : ""}$${journal.realizedPnl}`, // Fixed mapping
+                  value: `${isProfit ? "+" : ""}$${journal.realizedPnl.toFixed(2)}`,
                   className: isProfit ? "text-green-600 font-semibold" : "text-destructive font-semibold"
                 },
               ].map(item => (
@@ -401,8 +425,15 @@ export function JournalDetailDialog({
           </div>
         </div>
 
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Close</Button>
+        {/* Display error if deletion fails */}
+        {error && <p className="text-sm text-destructive font-medium">{error}</p>}
+
+        <DialogFooter className="flex items-center justify-end gap-2 mt-4">
+          <Button variant="outline" onClick={onClose} disabled={isDeleting}>Close</Button>
+          <Button variant="destructive" onClick={() => handleDelete(journal.id)} disabled={isDeleting}>
+            {isDeleting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+            {isDeleting ? "Deleting..." : "Delete"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -78,7 +78,7 @@ export function FutureCalendar({ accountId, bucketId, futureJournals }: { accoun
                               : "text-destructive"
                         }`}
                       >
-                        {yProfit > 0 ? "+" : ""}{yProfit.toFixed(0)}
+                        {yProfit > 0 ? "+" : ""}{yProfit.toFixed(2)}
                       </span>
                     )}
                   </button>
@@ -104,7 +104,7 @@ export function FutureCalendar({ accountId, bucketId, futureJournals }: { accoun
                       <span>{m}</span>
                       {mProfit !== 0 && (
                         <span className={`text-[9px] mt-0.5 ${selectedMonth === idx ? "text-primary-foreground/70" : mProfit > 0 ? "text-green-600" : "text-destructive"}`}>
-                          {mProfit > 0 ? "+" : ""}{mProfit.toFixed(0)}
+                          {mProfit > 0 ? "+" : ""}{mProfit.toFixed(2)}
                         </span>
                       )}
                     </button>
@@ -166,7 +166,7 @@ export function FutureCalendar({ accountId, bucketId, futureJournals }: { accoun
                     </span>
                     {hasJournals && (
                       <span className={`text-[9px] font-medium mt-0.5 ${dayProfit >= 0 ? "text-green-600" : "text-destructive"}`}>
-                        {dayProfit >= 0 ? "+" : ""}{dayProfit.toFixed(0)}
+                        {dayProfit >= 0 ? "+" : ""}{dayProfit.toFixed(2)}
                       </span>
                     )}
                     {hasJournals && (
@@ -266,6 +266,11 @@ export function FutureCalendar({ accountId, bucketId, futureJournals }: { accoun
         open={!!detailJournal}
         journal={detailJournal}
         onClose={() => setDetailJournal(null)}
+        onDelete={(deletedId) => {
+          // Remove the deleted journal from the local state array
+          setJournals(prev => prev.filter(j => j.id !== deletedId))
+          setDetailJournal(null)
+        }}
       />
     </div>
   )

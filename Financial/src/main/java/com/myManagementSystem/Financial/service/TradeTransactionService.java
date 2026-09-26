@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -33,57 +34,146 @@ public class TradeTransactionService {
   private final AccountRepository accountRepository;
   private final BucketRepository bucketRepository;
 
-  @Transactional // Make sure you have this annotation so the DB saves safely!
+//  @Transactional // Make sure you have this annotation so the DB saves safely!
+//  public TradeTransactionResponseDTO createTrade(TradeTransactionRequestDTO request) {
+//    log.info("Executing {} order for Company ID: {}", request.type(), request.companyId());
+//
+//    // 1. Fetch Entities
+//    InvestmentCompany company = companyRepository.findById(request.companyId())
+//        .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + request.companyId()));
+//
+//    // You actually don't even need to fetch the Account anymore if you aren't updating it!
+//    // But if your TradeTransaction entity requires linking the account, leave this fetch here.
+//    Account account = accountRepository.findById(request.accountId())
+//        .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + request.accountId()));
+//
+//    Bucket bucket = bucketRepository.findById(request.bucketId())
+//        .orElseThrow(() -> new ResourceNotFoundException("Bucket not found: " + request.bucketId()));
+//
+//    // 2. Calculate Total Trade Value securely on the backend
+//    BigDecimal investmentAmount = request.quantity().multiply(request.executionPrice());
+//
+//    // 3. Handle Cash Logic (BUY vs SELL)
+//    if (request.type() == StockTransactionSide.BUY) {
+//      // Check if you have enough buying power!
+//      if (bucket.getCurrentAmount().compareTo(investmentAmount) < 0) {
+//        throw new IllegalStateException("Insufficient funds in Bucket to execute BUY order.");
+//      }
+//      // Deduct cash ONLY from Buying Power
+//      bucket.setCurrentAmount(bucket.getCurrentAmount().subtract(investmentAmount));
+//
+//    } else if (request.type() == StockTransactionSide.SELL) {
+//      // Add cash BACK to Buying Power
+//      bucket.setCurrentAmount(bucket.getCurrentAmount().add(investmentAmount));
+//    }
+//
+//    // Save updated cash balance
+//    bucketRepository.save(bucket);
+//
+//    // 4. Build and save the Trade Ledger Entry
+//    TradeTransaction trade = TradeTransaction.builder()
+//        .type(request.type())
+//        .quantity(request.quantity())
+//        .executionPrice(request.executionPrice())
+//        .investmentAmount(investmentAmount)
+//        .transactionDate(LocalDateTime.now())
+//        .company(company)
+//        .build();
+//
+//    TradeTransaction savedTrade = tradeRepository.save(trade);
+//
+//    log.info("Successfully executed trade and updated Bucket balance.");
+//    return mapToDTO(savedTrade);
+//  }
+
+
+  @Transactional
   public TradeTransactionResponseDTO createTrade(TradeTransactionRequestDTO request) {
     log.info("Executing {} order for Company ID: {}", request.type(), request.companyId());
 
-    // 1. Fetch Entities
     InvestmentCompany company = companyRepository.findById(request.companyId())
         .orElseThrow(() -> new ResourceNotFoundException("Company not found with ID: " + request.companyId()));
 
-    // You actually don't even need to fetch the Account anymore if you aren't updating it!
-    // But if your TradeTransaction entity requires linking the account, leave this fetch here.
     Account account = accountRepository.findById(request.accountId())
         .orElseThrow(() -> new ResourceNotFoundException("Account not found: " + request.accountId()));
 
     Bucket bucket = bucketRepository.findById(request.bucketId())
         .orElseThrow(() -> new ResourceNotFoundException("Bucket not found: " + request.bucketId()));
 
-    // 2. Calculate Total Trade Value securely on the backend
-    BigDecimal investmentAmount = request.quantity().multiply(request.executionPrice());
+    // 1. Fetch all historical trades for this specific account and company
+    // (You will need to add this method to your TradeTransactionRepository)
+    List<TradeTransaction> history = tradeRepository.findByCompanyIdOrderByTransactionDateDesc(company.getId());
 
-    // 3. Handle Cash Logic (BUY vs SELL)
-    if (request.type() == StockTransactionSide.BUY) {
-      // Check if you have enough buying power!
-      if (bucket.getCurrentAmount().compareTo(investmentAmount) < 0) {
-        throw new IllegalStateException("Insufficient funds in Bucket to execute BUY order.");
+    // 2. Reconstruct the current holding state
+    BigDecimal currentQty = BigDecimal.ZERO;
+    BigDecimal totalCost = BigDecimal.ZERO;
+    BigDecimal avgPrice = BigDecimal.ZERO;
+
+    for (TradeTransaction pastTrade : history) {
+      if (pastTrade.getType() == StockTransactionSide.BUY) {
+        currentQty = currentQty.add(pastTrade.getQuantity());
+        totalCost = totalCost.add(pastTrade.getInvestmentAmount());
+      } else if (pastTrade.getType() == StockTransactionSide.SELL) {
+        currentQty = currentQty.subtract(pastTrade.getQuantity());
+        totalCost = currentQty.multiply(avgPrice); // Reduce cost basis proportionally
       }
-      // Deduct cash ONLY from Buying Power
-      bucket.setCurrentAmount(bucket.getCurrentAmount().subtract(investmentAmount));
 
-    } else if (request.type() == StockTransactionSide.SELL) {
-      // Add cash BACK to Buying Power
-      bucket.setCurrentAmount(bucket.getCurrentAmount().add(investmentAmount));
+      // Safely recalculate average price if we still hold shares
+      if (currentQty.compareTo(BigDecimal.ZERO) > 0) {
+        avgPrice = totalCost.divide(currentQty, 4, RoundingMode.HALF_UP);
+      } else {
+        avgPrice = BigDecimal.ZERO;
+      }
     }
 
-    // Save updated cash balance
-    bucketRepository.save(bucket);
+    BigDecimal tradeValue = request.quantity().multiply(request.executionPrice());
+    BigDecimal realizedPnl = BigDecimal.ZERO;
 
-    // 4. Build and save the Trade Ledger Entry
+    // 3. Execute New Trade Logic
+    if (request.type() == StockTransactionSide.BUY) {
+      if (bucket.getCurrentAmount().compareTo(tradeValue) < 0) {
+        throw new IllegalStateException("Insufficient funds in Bucket to execute BUY order.");
+      }
+      // Deduct cash from Bucket
+      bucket.setCurrentAmount(bucket.getCurrentAmount().subtract(tradeValue));
+
+    } else if (request.type() == StockTransactionSide.SELL) {
+      if (currentQty.compareTo(request.quantity()) < 0) {
+        throw new IllegalStateException("Insufficient share quantity to sell. You only own: " + currentQty);
+      }
+
+      // PnL = (Sell Price - Average Buy Price) * Quantity Sold
+      BigDecimal priceDifference = request.executionPrice().subtract(avgPrice);
+      realizedPnl = priceDifference.multiply(request.quantity());
+
+      // Add proceeds back to bucket and update total account balance
+      bucket.setCurrentAmount(bucket.getCurrentAmount().add(tradeValue));
+      account.setCurrentBalance(account.getCurrentBalance().add(realizedPnl));
+    }
+
+    // 4. Save Updates
+    bucketRepository.save(bucket);
+    accountRepository.save(account);
+
+    // 5. Save the new Trade
     TradeTransaction trade = TradeTransaction.builder()
         .type(request.type())
         .quantity(request.quantity())
         .executionPrice(request.executionPrice())
-        .investmentAmount(investmentAmount)
+        .investmentAmount(tradeValue)
+        // If you want to track PnL on the ledger, add a realizedPnl column to TradeTransaction!
         .transactionDate(LocalDateTime.now())
         .company(company)
+        // Ensure you add the Account entity mapping to TradeTransaction so you can query by it later
+        // .account(account)
         .build();
 
     TradeTransaction savedTrade = tradeRepository.save(trade);
 
-    log.info("Successfully executed trade and updated Bucket balance.");
+    log.info("Successfully executed trade. Realized PnL: {}", realizedPnl);
     return mapToDTO(savedTrade);
   }
+
 
   @Transactional
   public void deleteTradeById(Long tradeId, Long bucketId) {

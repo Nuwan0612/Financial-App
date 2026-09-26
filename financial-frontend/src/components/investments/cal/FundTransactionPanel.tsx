@@ -67,7 +67,8 @@ export function FundTransactionPanel({
           <thead>
             <tr className="bg-muted/20">
               <th className="text-left px-4 py-2 font-medium text-muted-foreground border border-border">Date</th>
-              <th className="text-center px-4 py-2 font-medium text-muted-foreground border border-border w-24">Type</th>
+              <th className="text-center px-4 py-2 font-medium text-muted-foreground border border-border w-36">Type</th>
+              <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-36">Buy Price</th>
               <th className="text-right px-4 py-2 font-medium text-muted-foreground border border-border w-36">Amount</th>
             </tr>
           </thead>
@@ -83,6 +84,9 @@ export function FundTransactionPanel({
                     : "bg-red-500/10 text-red-600 border-red-500/20 text-xs"}>
                     {t.type === "INVEST" ? "Invest" : "Redeem"}
                   </Badge>
+                </td>
+                <td className="px-4 py-2 border border-border text-right text-muted-foreground text-xs">
+                  {t.buyPrice.toFixed(4)}
                 </td>
                 <td className={`px-4 py-2 border border-border text-right tabular-nums font-medium
                   ${t.type === "INVEST" ? "text-green-600" : "text-destructive"}`}>

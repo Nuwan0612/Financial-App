@@ -665,6 +665,9 @@ export const fetchAndPrintDynamicCalFunds = async () => {
       }
     });
 
+    console.log(`✅ Successfully scraped ${allFunds.length} funds from UTASL dynamically.\n`);
+    console.log(allFunds); // Debug: Print all scraped funds
+
     // 4. Filter for only Capital Alliance funds
     // By turning the object into a JSON string, we can search the entire object at once
     const calFunds = allFunds.filter(fund => {
@@ -694,3 +697,147 @@ export const fetchAndPrintDynamicCalFunds = async () => {
 };
 
 // fetchAndPrintDynamicCalFunds();
+
+import { chromium } from "playwright"; // npm install -D playwright && npx playwright install chromium
+
+export const fetchAndPrintDynamicCalFundss = async () => {
+  const url = "https://www.utasl.lk/unit-prices/";
+  const browser = await chromium.launch();
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+
+    // Wait for the actual data rows, not just the placeholder text.
+    // Adjust selector if UTASL's markup differs — check devtools first.
+    await page.waitForSelector("table tbody tr", { timeout: 15000 });
+
+    // Give any lazy-loaded/paginated batches a moment to finish appending.
+    // If the site has a "Show More" / infinite-scroll button, click it here
+    // in a loop until it disappears, before extracting.
+    await page.waitForTimeout(1500);
+
+    const headers: string[] = await page.$$eval("table thead th", (ths) =>
+      ths.map((th) => th.textContent?.trim() ?? "")
+    );
+
+    const allFunds: Record<string, string>[] = await page.$$eval(
+      "table tbody tr",
+      (rows, headers) =>
+        rows.map((row) => {
+          const cells = Array.from(row.querySelectorAll("td"));
+          const fund: Record<string, string> = {};
+          cells.forEach((cell, i) => {
+            const key = headers[i] || `Column_${i + 1}`;
+            fund[key] = cell.textContent?.trim() ?? "";
+          });
+          return fund;
+        }),
+      headers
+    );
+
+    console.log(`✅ Scraped ${allFunds.length} funds total.`);
+
+    const calFunds = allFunds.filter((fund) =>
+      JSON.stringify(fund).toLowerCase().includes("capital alliance")
+    );
+
+    console.log(`✅ Found ${calFunds.length} CAL funds.`);
+    calFunds.forEach((fund, i) => {
+      console.log(`--- CAL Fund #${i + 1} ---`);
+      Object.entries(fund).forEach(([k, v]) => console.log(`   ${k}: ${v}`));
+    });
+
+    return calFunds;
+  } catch (error) {
+    console.error("Error scraping UTASL with Playwright:", error);
+    return [];
+  } finally {
+    await browser.close();
+  }
+};
+
+// fetchAndPrintDynamicCalFundss();
+
+interface CalFundRate {
+  FUND: string;
+  FUND_NAME: string;
+  LATEST_DATE: string;
+  LATEST_PRICE: string;
+  OLD_DATE: string;
+  OLD_PRICE: string;
+  PORTFOLIO: string;
+  RATE_PERIOD: string;
+}
+
+interface CalFundRatesResponse {
+  UTMS_FUND: CalFundRate[];
+}
+
+interface CalFundRate {
+  FUND: string;
+  FUND_NAME: string;
+  LATEST_DATE: string;
+  LATEST_PRICE: string;
+  OLD_DATE: string;
+  OLD_PRICE: string;
+  PORTFOLIO: string;
+  RATE_PERIOD: string;
+}
+
+interface CalFundRatesResponse {
+  UTMS_FUND: CalFundRate[];
+}
+
+// Returns YYYY-MM-DD for (today - offsetDays), in local time.
+// offsetDays=1 gives yesterday's date.
+const getDateOffset = (offsetDays: number): string => {
+  const d = new Date();
+  d.setDate(d.getDate() - offsetDays);
+  return d.toISOString().slice(0, 10);
+};
+
+export const fetchCalFundRates = async (
+  valueDate?: string // format: YYYY-MM-DD, defaults to today
+): Promise<CalFundRate[]> => {
+  const date = valueDate ?? getDateOffset(0);
+  const url = `https://cal.lk/wp-admin/admin-ajax.php?action=getUTFundRates&valuedate=${date}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: "application/json" },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data: CalFundRatesResponse = await response.json();
+    const funds = data.UTMS_FUND ?? [];
+
+    console.log(`✅ Fetched ${funds.length} CAL funds for ${date}`);
+    funds.forEach((fund) => {
+      console.log(
+        `   ${fund.FUND} (${fund.FUND_NAME}): ${fund.LATEST_PRICE} as of ${fund.LATEST_DATE}`
+      );
+    });
+
+    return funds;
+  } catch (error) {
+    console.error("Error fetching CAL fund rates:", error);
+    return [];
+  }
+};
+
+// Fetches rates using yesterday's date (today - 1) as valuedate.
+// Note: in testing, changing valuedate did not change the OLD_DATE/OLD_PRICE
+// fields in the response (looked cached on CAL's side) — LATEST_DATE/LATEST_PRICE
+// always reflect the most recent trading day regardless of the date passed.
+// If you need a true historical price for a specific past day, don't rely on
+// this param — poll this endpoint daily and store the results yourself instead.
+export const fetchPreviousDayCalFundRates = async (): Promise<CalFundRate[]> => {
+  const yesterday = getDateOffset(1);
+  return fetchCalFundRates(yesterday);
+};
+
+fetchPreviousDayCalFundRates()

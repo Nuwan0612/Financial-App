@@ -54,10 +54,10 @@ export function FundCard({
         
         if (liveFund) {
           setLiveUnitPrice(liveFund.sellPrice) 
-          fund.currentValue = liveFund.sellPrice
 
           try {
             await calFundsApi.updateValue(fund.id, liveFund.sellPrice)
+            onFundUpdated({...fund, currentValue: liveFund.sellPrice})
           } catch (e) {
             console.error("Failed to update fund with live NAV:", e)
           }

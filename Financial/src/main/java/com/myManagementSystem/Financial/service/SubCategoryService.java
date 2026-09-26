@@ -84,7 +84,7 @@ public class SubCategoryService {
   // GET ALL
   public List<SubCategoryResponseDTO> getAllSubCategories() {
     log.info("Fetching all SubCategories");
-    return subCategoryRepository.findByIsActiveTrue()
+    return subCategoryRepository.findByIsActiveTrueAndPercentageGreaterThanZero()
         .stream()
         .map(this::mapToDTO) // Reusing your helper method!
         .toList();

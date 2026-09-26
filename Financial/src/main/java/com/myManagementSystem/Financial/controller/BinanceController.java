@@ -47,4 +47,10 @@ public class BinanceController {
     public ResponseEntity<List<FuturesJournalResponseDTO>> getFuturesJournal(@PathVariable Long accountId) {
         return ResponseEntity.ok(futuresTradingService.getFuturesJournal(accountId));
     }
+
+    @DeleteMapping("/futures/journal/{journalId}")
+    public ResponseEntity<Void> deleteFutureJournal(@PathVariable Long journalId){
+        futuresTradingService.deleteJournalById(journalId);
+        return ResponseEntity.noContent().build();
+    }
 }

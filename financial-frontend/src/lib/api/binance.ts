@@ -73,4 +73,5 @@ export const cryptoApi = {
 
   createFutureJournal:  (data: FutureJournalRequestDto) => api.post<FutureJournalResponseDto>("/binance/futures/journal", data),
   getFutureJournals: (accountId: number) => api.get<FutureJournalResponseDto[]>(`/binance/futures/journal/${accountId}`),
+  deleteFutureJournal: (journalId: number) => api.delete(`/binance/futures/journal/${journalId}`),
 }

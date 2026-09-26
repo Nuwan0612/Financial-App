@@ -51,26 +51,30 @@ public class CalFundService {
 
     // This is where compound profit is captured and applied to your total wealth
     @Transactional
-    public CalFundResponseDTO updateFundEarnings(Long fundId, BigDecimal newValue) {
-        log.info("Updating earnings for CAL Fund ID: {}", fundId);
-
+    public CalFundResponseDTO updateFundEarnings(Long fundId, BigDecimal latestUnitPrice) {
         CalFund fund = calFundRepository.findById(fundId)
-                .orElseThrow(() -> new ResourceNotFoundException("Fund not found"));
+            .orElseThrow(() -> new ResourceNotFoundException("Fund not found"));
 
-        // Calculate the profit (New Value - Old Value)
-        BigDecimal profit = newValue.subtract(fund.getCurrentValue());
+        BigDecimal totalUnits = fund.getTransactions().stream()
+            .map(t -> t.getType() == CalTransactionType.REDEEM
+                ? t.getNumberOfUnits().negate()
+                : t.getNumberOfUnits())
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        // Update the Fund's current value
-        fund.setCurrentValue(newValue);
+        BigDecimal oldUnitPrice = fund.getCurrentValue(); // this is a unit price, not a total
+        BigDecimal oldTotalValue = oldUnitPrice.multiply(totalUnits);
+        BigDecimal newTotalValue = latestUnitPrice.multiply(totalUnits);
 
-        // Add the profit to the Account to increase total wealth
+        BigDecimal profit = newTotalValue.subtract(oldTotalValue);
+
+        fund.setCurrentValue(latestUnitPrice); // store the new unit price, not the total
+
         Account account = fund.getAccount();
         account.setCurrentBalance(account.getCurrentBalance().add(profit));
-
         accountRepository.save(account);
+
         return mapToDTO(calFundRepository.save(fund));
     }
-
     public List<CalFundResponseDTO> getActiveFunds() {
         return calFundRepository.findByIsActiveTrue().stream().map(this::mapToDTO).toList();
     }
