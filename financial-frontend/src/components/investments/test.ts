@@ -59,16 +59,19 @@ const fetchSingleStockPrice = async (symbol: string) => {
   }
 };
 
+// fetchSingleStockPrice("COMB.N0000")
+
 const fetchAllSectors = async () => {
   const url = "https://www.cse.lk/api/allSectors";
 
   try {
     const response = await fetch(url, {
       method: "POST",
+      body: "", // Adding an empty body ensures fetch handles the length automatically
       headers: {
         "User-Agent": "Mozilla/5.0",
         "X-Requested-With": "XMLHttpRequest",
-        "Content-Length": "0" 
+        // Content-Length removed
       }
     });
 
@@ -94,10 +97,11 @@ const fetchAllCompanies = async () => {
   try {
     const response = await fetch(url, {
       method: "POST",
+      body: "",
       headers: {
         "User-Agent": "Mozilla/5.0",
         "X-Requested-With": "XMLHttpRequest",
-        "Content-Length": "0" 
+        // "Content-Length": "0"
       }
     });
 
@@ -115,6 +119,72 @@ const fetchAllCompanies = async () => {
   }
 };
 
+const fetchEnrichedMarketData = async () => {
+  const aspiUrl = "https://www.cse.lk/api/aspi";
+  const spslUrl = "https://www.cse.lk/api/spsl";
+
+  const fetchOptions = {
+    method: "POST",
+    body: "",
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "X-Requested-With": "XMLHttpRequest"
+    }
+  };
+
+  try {
+    // 1. Fetch both the entire market (ASPI) and the S&P 20 constituents concurrently
+    const [aspiRes, spslRes] = await Promise.all([
+      fetch(aspiUrl, fetchOptions),
+      fetch(spslUrl, fetchOptions)
+    ]);
+
+    // Handle raw text parsing to prevent "Unexpected end of JSON" crashes
+    const aspiRaw = await aspiRes.text();
+    const spslRaw = await spslRes.text();
+
+    if (!aspiRaw || !spslRaw) throw new Error("Received empty response from CSE.");
+
+    const aspiData = JSON.parse(aspiRaw);
+    const spslData = JSON.parse(spslRaw);
+
+    // 2. Extract the arrays based on the CSE key structure
+    const allStocks = aspiData.reqASPIIndices || aspiData;
+    const sp20Stocks = spslData.reqSNPIndices || spslData;
+
+    // 3. Create a quick O(1) lookup Set for S&P 20 symbols
+    const sp20Symbols = new Set(sp20Stocks.map(stock => stock.symbol));
+
+    // 4. Map the data together
+    const enrichedCompanies = allStocks.map(stock => ({
+      symbol: stock.symbol,
+      name: stock.name,
+      currentPrice: stock.price, // Last Traded Price
+      isSp20: sp20Symbols.has(stock.symbol),
+      sector: null // See note below regarding sectors
+    }));
+
+    return enrichedCompanies;
+
+  } catch (error) {
+    console.error("Error fetching market data:", error.message);
+    return [];
+  }
+};
+
+// ... your fetchEnrichedMarketData function stays exactly the same ...
+
+// Call the function and print the first 10
+// fetchEnrichedMarketData().then((companies) => {
+//   if (companies.length > 0) {
+//     const firstTen = companies.slice(0, 10);
+//     console.log("First 10 Companies:");
+//     console.log(JSON.stringify(firstTen, null, 2)); // null, 2 makes the JSON output pretty and readable
+//   } else {
+//     console.log("No companies data was returned.");
+//   }
+// });
+
 
 const fetchSp20Companies = async () => {
   const url = "https://www.cse.lk/api/spsl";
@@ -122,10 +192,11 @@ const fetchSp20Companies = async () => {
   try {
     const response = await fetch(url, {
       method: "POST",
+      body: "",
       headers: {
         "User-Agent": "Mozilla/5.0",
         "X-Requested-With": "XMLHttpRequest",
-        "Content-Length": "0" 
+        // "Content-Length": "0"
       }
     });
 
@@ -664,9 +735,6 @@ export const fetchAndPrintDynamicCalFunds = async () => {
         allFunds.push(fundData);
       }
     });
-
-    console.log(`✅ Successfully scraped ${allFunds.length} funds from UTASL dynamically.\n`);
-    console.log(allFunds); // Debug: Print all scraped funds
 
     // 4. Filter for only Capital Alliance funds
     // By turning the object into a JSON string, we can search the entire object at once
