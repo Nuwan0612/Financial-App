@@ -3,6 +3,7 @@ package com.myManagementSystem.Financial.service;
 import com.myManagementSystem.Financial.dto.AccountRequestDTO;
 import com.myManagementSystem.Financial.dto.AccountResponseDTO;
 import com.myManagementSystem.Financial.dto.AccountSnapshotResponseDTO;
+import com.myManagementSystem.Financial.dto.DailyWealthSnapshotResponseDTO;
 import com.myManagementSystem.Financial.entity.Account;
 import com.myManagementSystem.Financial.entity.AccountSnapshot;
 import com.myManagementSystem.Financial.exception.ResourceNotFoundException;
@@ -118,7 +119,7 @@ public class AccountService {
     );
   }
 
-  public List<AccountSnapshotResponseDTO> getSnapshots(Long accoundId) {
+  public List<AccountSnapshotResponseDTO> getSnapshotsByAccountId(Long accoundId) {
     log.info("Attempting to get Snapshots of Account by ID {}", accoundId);
 
     List<AccountSnapshot> accountSnapshots = accountSnapshotRepository.findByAccountId(accoundId);
@@ -131,5 +132,12 @@ public class AccountService {
             snapshot.getSnapshotDate()
         ))
         .toList();
+  }
+
+  public List<DailyWealthSnapshotResponseDTO> getSnapshots() {
+    log.info("Attempting to get Snapshots ");
+
+    log.info("Fetching aggregate wealth history over time");
+    return accountSnapshotRepository.findTotalWealthHistory();
   }
 }

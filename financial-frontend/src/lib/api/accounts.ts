@@ -49,6 +49,13 @@ export type Snapshots = {
   date: string
 }
 
+export type DailyWealthSnapshotResponseDTO = {
+  date: string
+  totalBalance: number
+}
+
+
 export const snapshotsApi = {
   getSnapshotsByAccount: (accountId: number) => api.get<Snapshots[]>(`/accounts/snapshots/${accountId}`),
+  getWealthSnapshots: () => api.get<DailyWealthSnapshotResponseDTO[]>(`/accounts/snapshots`),
 }

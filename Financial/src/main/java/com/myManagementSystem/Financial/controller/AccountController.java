@@ -3,6 +3,7 @@ package com.myManagementSystem.Financial.controller;
 import com.myManagementSystem.Financial.dto.AccountRequestDTO;
 import com.myManagementSystem.Financial.dto.AccountResponseDTO;
 import com.myManagementSystem.Financial.dto.AccountSnapshotResponseDTO;
+import com.myManagementSystem.Financial.dto.DailyWealthSnapshotResponseDTO;
 import com.myManagementSystem.Financial.service.AccountService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +47,12 @@ public class AccountController {
   }
 
   @GetMapping("/snapshots/{accountId}")
-  public  ResponseEntity<List<AccountSnapshotResponseDTO>> getSnapshots(@PathVariable Long accountId){
-    return ResponseEntity.ok(accountService.getSnapshots(accountId));
+  public  ResponseEntity<List<AccountSnapshotResponseDTO>> getSnapshotsByAccount(@PathVariable Long accountId){
+    return ResponseEntity.ok(accountService.getSnapshotsByAccountId(accountId));
+  }
+
+  @GetMapping("/snapshots")
+  public  ResponseEntity<List<DailyWealthSnapshotResponseDTO>> getSnapshots(){
+    return ResponseEntity.ok(accountService.getSnapshots());
   }
 }

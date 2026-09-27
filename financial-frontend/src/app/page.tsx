@@ -1,7 +1,7 @@
 // src/app/page.tsx  (Dashboard)
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   TrendingUp, TrendingDown, Zap, ArrowLeftRight,
   RefreshCw, Plus, Wallet, BarChart3,
@@ -13,8 +13,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
-  Tooltip, PieChart, Pie, Cell, Legend,
+  Tooltip, PieChart, Pie, Cell, Legend, CartesianGrid
 } from "recharts"
+
 import {
   Dialog, DialogContent, DialogHeader,
   DialogTitle, DialogFooter,
@@ -25,31 +26,10 @@ import {
   Select, SelectContent, SelectItem,
   SelectTrigger, SelectValue,
 } from "@/components/ui/select"
+import { Account, accountsApi, DailyWealthSnapshotResponseDTO, snapshotsApi } from "@/lib/api/accounts"
+import { getUsdToLkrRate } from "@/lib/utils"
 
 // ─── Dummy Data ───────────────────────────────────────────────
-
-const wealthHistory = [
-  { date: "Jan '25", nav: 2800000 },
-  { date: "Feb '25", nav: 2950000 },
-  { date: "Mar '25", nav: 2870000 },
-  { date: "Apr '25", nav: 3100000 },
-  { date: "May '25", nav: 3350000 },
-  { date: "Jun '25", nav: 3280000 },
-  { date: "Jul '25", nav: 3600000 },
-  { date: "Aug '25", nav: 3780000 },
-  { date: "Sep '25", nav: 3650000 },
-  { date: "Oct '25", nav: 3900000 },
-  { date: "Nov '25", nav: 4100000 },
-  { date: "Dec '25", nav: 4350000 },
-]
-
-const byAccount = [
-  { name: "NSB", value: 1200000, color: "#6366f1" },
-  { name: "COMB", value: 850000, color: "#3b82f6" },
-  { name: "CAL", value: 980000, color: "#10b981" },
-  { name: "Stock Market", value: 720000, color: "#f59e0b" },
-  { name: "Binance", value: 600000, color: "#f97316" },
-]
 
 const byAssetClass = [
   { name: "Liquid Cash", value: 25, color: "#6366f1" },
@@ -84,13 +64,15 @@ const recentActivity = [
   { id: 6, type: "BUY", asset: "COMB", amount: 95000, date: "3 days ago", module: "Stock", positive: false },
 ]
 
-const buyingPower = 485000
+
 const masterPnL = 254000
-const totalNAV = byAccount.reduce((s, a) => s + a.value, 0)
 
 // ─── Helpers ─────────────────────────────────────────────────
 const fmtLKR = (n: number) =>
   new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 }).format(n)
+
+const fmtUSD = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(n)
 
 const fmtCompact = (n: number) => {
   const abs = Math.abs(n)
@@ -211,15 +193,39 @@ function TransferDialog({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 // ─── Custom Tooltip ───────────────────────────────────────────
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="rounded-lg border border-border bg-background px-3 py-2 text-xs shadow-md">
-      <p className="text-muted-foreground mb-1">{label}</p>
-      <p className="font-semibold">{fmtLKR(payload[0].value)}</p>
-    </div>
-  )
+const fmt = (n: number) =>
+  new Intl.NumberFormat("en-LK", { style: "currency", currency: "LKR", maximumFractionDigits: 0 }).format(n)
+
+const CustomAreaTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length && label) {
+    // If rawDate is YYYY-MM-DD, parse without timezone skew
+    const formattedDate = new Date(label).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    })
+
+    return (
+      <div className="rounded-lg border border-border bg-background p-3 shadow-md">
+        <p className="text-xs text-muted-foreground mb-1">{formattedDate}</p>
+        <div className="flex items-center gap-2">
+          <div className="h-2 w-2 rounded-full bg-primary" />
+          <p className="text-sm font-medium text-foreground">
+            Total Wealth: <span className="font-semibold">{fmt(payload[0].value)}</span>
+          </p>
+        </div>
+      </div>
+    )
+  }
+  return null
 }
+
+const getDeterministicColor = (index: number, total: number) => {
+  // Use golden angle approximation (137.5 deg) for optimal distribution
+  const hue = (index * 137.508) % 360
+  return `hsl(${hue}, 70%, 55%)`
+}
+
 
 // ─── Dashboard ────────────────────────────────────────────────
 export default function DashboardPage() {
@@ -227,11 +233,65 @@ export default function DashboardPage() {
   const [showTransfer, setShowTransfer] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [pnlRange, setPnlRange] = useState<"alltime" | "24h">("alltime")
+  const [snapshot, setSnapshot] = useState<DailyWealthSnapshotResponseDTO[]>([])
+
+  const [accounts, setAccounts] = useState<Account[]>([])
+  const [usdToLkrRate, setUsdToLkrRate] = useState<number>(0)
+
+  useEffect(() => {
+    Promise.all([
+      accountsApi.getAll(),
+      getUsdToLkrRate(),
+      snapshotsApi.getWealthSnapshots()
+      // more fetches go here later
+    ]).then(([accountsRes, usdToLkrRate, snapshot]) => {
+
+      console.log("Fetched accounts:", accountsRes.data)
+      setAccounts(accountsRes.data)
+      setUsdToLkrRate(usdToLkrRate)
+      setSnapshot(snapshot.data)
+    }).catch(() => console.error("Failed to fetch dashboard data"))
+  }, [])
+
+  const bankAccounts = accounts.filter(a => a.type === "Bank")
+  const buyingPowerLKR = bankAccounts.reduce((s, a) => s + a.currentBalance, 0)
+  const totalNAVLKR = accounts.reduce((s, a) => s + a.currentBalance, 0)
+  const buyingPowerUSD = buyingPowerLKR / usdToLkrRate
+  const totalNAVUSD = totalNAVLKR / usdToLkrRate
+
+   const earliestDate = snapshot.length > 0
+      ? snapshot.reduce((earliest, s) => s.date < earliest ? s.date : earliest, snapshot[0].date.split("T")[0])
+      : null
+
+
+// 2. Area Chart Data (Sort by date ascending)
+  const chartData = [...snapshot]
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    .map(s => ({
+      rawDate: s.date, // e.g. "2026-05-12"
+      amount: Number(s.totalBalance || 0),
+    }))
 
   const handleRefresh = () => {
     setRefreshing(true)
     setTimeout(() => setRefreshing(false), 1800)
   }
+
+  const byAccount = useMemo(() => {
+    const activeAccounts = accounts.filter(
+      (a) => a.isActive && Number(a.currentBalance || 0) > 0
+    )
+
+    return activeAccounts.map((acc, index) => ({
+      name: acc.name,
+      value: Number(acc.currentBalance),
+      color: getDeterministicColor(index, activeAccounts.length),
+    }))
+  }, [accounts])
+
+  const totalNAV = useMemo(() => {
+    return byAccount.reduce((sum, item) => sum + item.value, 0)
+  }, [byAccount])
 
   return (
     <div className="p-6 mx-auto space-y-6" style={{ maxWidth: "1600px" }}>
@@ -267,19 +327,20 @@ export default function DashboardPage() {
 
         {/* Buying Power */}
         <Card className="border-border/60">
-          <CardContent className="pt-5 pb-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Buying Power</p>
-                <p className="text-2xl font-semibold mt-1">{fmtLKR(buyingPower)}</p>
-                <p className="text-xs text-muted-foreground mt-1">Liquid cash ready to deploy</p>
-              </div>
-              <div className="h-9 w-9 rounded-lg bg-indigo-500/10 flex items-center justify-center">
-                <Wallet className="h-4 w-4 text-indigo-500" />
-              </div>
+        <CardContent className="pt-5 pb-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Buying Power</p>
+              <p className="text-2xl font-semibold mt-1">{fmtLKR(buyingPowerLKR)}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{fmtUSD(buyingPowerUSD)}</p>
+              <p className="text-xs text-muted-foreground mt-1">Liquid cash across bank accounts</p>
             </div>
-          </CardContent>
-        </Card>
+            <div className="h-9 w-9 rounded-lg bg-indigo-500/10 flex items-center justify-center">
+              <Wallet className="h-4 w-4 text-indigo-500" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
         {/* Master P&L */}
         <Card className="border-border/60">
@@ -321,7 +382,8 @@ export default function DashboardPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-xs text-muted-foreground font-medium uppercase tracking-wider">Total Net Worth</p>
-                <p className="text-2xl font-semibold mt-1">{fmtLKR(totalNAV)}</p>
+                <p className="text-2xl font-semibold mt-1">{fmtLKR(totalNAVLKR)}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{fmtUSD(totalNAVUSD)}</p>
                 <p className="text-xs text-muted-foreground mt-1">Across all accounts & assets</p>
               </div>
               <div className="h-9 w-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
@@ -365,30 +427,57 @@ export default function DashboardPage() {
       <div className="grid grid-cols-[1fr_320px] gap-4">
 
         {/* NAV trend */}
-        <Card>
-          <CardHeader className="pb-2 pt-4 px-5">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-semibold">Total Wealth Over Time</CardTitle>
-              <span className="text-xs text-muted-foreground">Net Asset Value — 12 months</span>
-            </div>
+        <Card className="lg:col-span-1 shadow-sm border-border/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-medium text-muted-foreground">Total Wealth Over Time</CardTitle>
           </CardHeader>
-          <CardContent className="px-5 pb-4">
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={wealthHistory}>
-                <defs>
-                  <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false}
-                  tickFormatter={v => `${(v / 1000000).toFixed(1)}M`} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="nav" stroke="#6366f1" strokeWidth={2}
-                  fill="url(#navGrad)" dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+          <CardContent>
+            {chartData.length === 0 ? (
+              <div className="h-62.5 flex items-center justify-center text-sm text-muted-foreground">
+                No history available yet.
+              </div>
+            ) : (
+              <div className="h-62.5 w-full mt-2">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="colorAmount" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="var(--primary)" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.5} />
+                    <XAxis 
+                      dataKey="rawDate" 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }} 
+                      dy={10}
+                      tickFormatter={(value) => {
+                        // This tells the axis to ONLY draw "May 12" on the screen
+                        return new Date(value).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                      }}
+                    />
+                    <YAxis 
+                      axisLine={false} 
+                      tickLine={false} 
+                      tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
+                      tickFormatter={(value) => `Rs.${(value / 1000)}k`}
+                      dx={-10}
+                    />
+                    <Tooltip content={<CustomAreaTooltip />} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="amount" 
+                      stroke="var(--primary)" 
+                      strokeWidth={2}
+                      fillOpacity={1} 
+                      fill="url(#colorAmount)" 
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -432,28 +521,59 @@ export default function DashboardPage() {
       </div>
 
       {/* ── Charts Row + Holdings P&L ── */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-4">
 
         {/* Wealth by Account — Pie */}
         <Card>
-          <CardHeader className="pb-0 pt-4 px-5">
+          <CardHeader className="pb-0 pt-4 px-5 flex flex-row items-center justify-between">
             <CardTitle className="text-sm font-semibold">Wealth by Account</CardTitle>
+            <span className="text-xs text-muted-foreground font-medium">
+              Total: {fmtLKR(totalNAV)}
+            </span>
           </CardHeader>
           <CardContent className="px-4 pb-4">
-            <ResponsiveContainer width="100%" height={180}>
-              <PieChart>
-                <Pie data={byAccount} cx="50%" cy="50%" outerRadius={70} dataKey="value" paddingAngle={2}>
-                  {byAccount.map((a, i) => <Cell key={i} fill={a.color} />)}
-                </Pie>
-                <Tooltip formatter={(v) => fmtLKR(Number(v) || 0)} />
-                <Legend iconSize={8} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
+            {byAccount.length === 0 ? (
+              <div className="h-[180px] flex items-center justify-center text-xs text-muted-foreground">
+                No active funded accounts
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height={180}>
+                <PieChart>
+                  <Pie
+                    data={byAccount}
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={70}
+                    innerRadius={35} // Modern donut cut
+                    dataKey="value"
+                    paddingAngle={3}
+                  >
+                    {byAccount.map((a, i) => (
+                      <Cell key={`cell-${i}`} fill={a.color} stroke="transparent" />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(v) => [fmtLKR(Number(v) || 0), "Balance"]}
+                    contentStyle={{
+                      backgroundColor: "var(--background)",
+                      borderColor: "var(--border)",
+                      borderRadius: "8px",
+                      fontSize: "12px",
+                    }}
+                  />
+                  <Legend
+                    iconSize={8}
+                    iconType="circle"
+                    wrapperStyle={{ fontSize: 11, paddingTop: "8px" }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
         {/* Wealth by Asset Class — Donut */}
-        <Card>
+        {/* <Card>
           <CardHeader className="pb-0 pt-4 px-5">
             <CardTitle className="text-sm font-semibold">Wealth by Asset Class</CardTitle>
           </CardHeader>
@@ -469,7 +589,7 @@ export default function DashboardPage() {
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
-        </Card>
+        </Card> */}
 
         {/* Holdings P&L — scrollable list */}
         <Card>
